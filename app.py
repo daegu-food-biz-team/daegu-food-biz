@@ -319,7 +319,7 @@ def show_report_page(unit: str):
     has_ai=bool(generated)
     # All controls are kept on one row with the same monochrome UI language;
     # only the AI action uses an accent color. No captions under buttons.
-    c1,c2,c3,c4=st.columns([1.0,1.75,1.3,1.42],gap='small')
+    c1,c2,c3=st.columns([1.0,1.75,1.3],gap='small')
     with c1:
         if st.button('초안 보기',key=f'draft_{unit}',use_container_width=True):
             report_modes[unit]='draft'
@@ -346,33 +346,6 @@ def show_report_page(unit: str):
         st.download_button('보고서 다운로드',data=text_to_save,
             file_name=f'daegu_food_biz_{unit.replace(" ","_")}_report.txt',
             mime='text/plain;charset=utf-8',use_container_width=True)
-    with c4:
-        # The report was opened in a separate browser tab from the map. Close
-        # this tab instead of navigating/reloading the expensive map iframe.
-        # A tab opened manually from a URL may not be script-closable.
-        st.html('''<button type="button" id="dfb-close-report-tab" class="dfb-close-tab">✕ 보고서 탭 닫기</button>
-        <div id="dfb-close-report-fallback" class="dfb-close-fallback" hidden></div>
-        <script>
-        (() => {
-          const button = document.getElementById('dfb-close-report-tab');
-          if (!button || button.dataset.bound === '1') return;
-          button.dataset.bound = '1';
-          button.addEventListener('click', () => {
-            window.close();
-            // Only visible if browser disallows programmatic closing.
-            setTimeout(() => {
-              const fallback = document.getElementById('dfb-close-report-fallback');
-              if (fallback && !window.closed) {
-                const mac = /Mac|iPhone|iPad/.test(navigator.platform);
-                fallback.textContent = mac
-                  ? '브라우저에서 닫기를 제한했습니다. ⌘W로 이 탭을 닫아 주세요.'
-                  : '브라우저에서 닫기를 제한했습니다. Ctrl+W로 이 탭을 닫아 주세요.';
-                fallback.hidden = false;
-              }
-            }, 200);
-          });
-        })();
-        </script>''', unsafe_allow_javascript=True)
 
     if not key:
         st.info('무료 Gemini API 키가 아직 등록되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록하면 AI 보고서를 생성할 수 있습니다.')
