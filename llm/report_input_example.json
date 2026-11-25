@@ -1,0 +1,78 @@
+[
+  {
+    "unit": "중구 동성로2가",
+    "gu": "중구",
+    "dong": "동성로2가",
+    "as_of": "2025년 말",
+    "model_version": "v2-seoul+daegu2011-2023-pop3-lr",
+    "diagnosis": {
+      "bottleneck": "생존 병목",
+      "confidence": "높음",
+      "past_accuracy": 0.82,
+      "rule_agree": true,
+      "entry_rank_pct": 1.0,
+      "survival_rank_pct": 0.015,
+      "compared_with": "대구 정체 동 65곳"
+    },
+    "top_factors": [
+      "최근 개업률 높음",
+      "최근 폐업률 높음",
+      "점포 규모 낮음"
+    ],
+    "status": {
+      "active_food_stores": 85,
+      "store_change_3y": -0.15,
+      "openings_3y_per_store": 1.541,
+      "closures_3y_per_store": 1.718,
+      "population_change_3y": 0.085
+    },
+    "policy_types": [
+      "초기 2년 경영 지원",
+      "창업 전 상권·과밀 업종 정보 제공",
+      "임대료 안정"
+    ],
+    "check_on_site": [
+      "임대료 추이",
+      "업종 과밀 여부",
+      "폐업 사유"
+    ],
+    "support_programs": []
+  },
+  {
+    "unit": "동구 백안동",
+    "gu": "동구",
+    "dong": "백안동",
+    "as_of": "2025년 말",
+    "model_version": "v2-seoul+daegu2011-2023-pop3-lr",
+    "diagnosis": {
+      "bottleneck": "진입 병목",
+      "confidence": "높음",
+      "past_accuracy": 0.82,
+      "rule_agree": true,
+      "entry_rank_pct": 0.015,
+      "survival_rank_pct": 1.0,
+      "compared_with": "대구 정체 동 65곳"
+    },
+    "top_factors": [
+      "최근 개업률 낮음",
+      "업종 다양성 낮음",
+      "최근 폐업률 낮음"
+    ],
+    "status": {
+      "active_food_stores": 36,
+      "store_change_3y": -0.1,
+      "openings_3y_per_store": 0.028,
+      "closures_3y_per_store": 0.139,
+      "population_change_3y": -0.07
+    },
+    "policy_types": [
+      "빈 점포 매칭",
+      "청년 창업 유치",
+      "공실 리모델링"
+    ],
+    "check_on_site": [
+      "실제 공실 여부 (빈자리가 없어 못 들어오는 경우 제외)"
+    ],
+    "support_programs": []
+  }
+]
