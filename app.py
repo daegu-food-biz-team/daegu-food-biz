@@ -56,6 +56,43 @@ CLOUD_FIX_CSS = r"""
 @media(max-width:700px){
   [class*="st-key-nav_button_"] button{font-size:10px!important;padding:5px 2px!important;min-height:32px!important;}
 }
+
+/* v0.9: restore the clear HTML-prototype form controls; fixes washed-out cloud text. */
+[data-testid="stSelectbox"],
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stSelectbox"] [data-baseweb="select"] *,
+[data-testid="stSelectbox"] [role="combobox"],
+[data-testid="stSelectbox"] [role="combobox"] *,
+[data-testid="stSelectbox"] [aria-selected],
+[data-testid="stSelectbox"] input {
+  color:#16191d!important;
+  -webkit-text-fill-color:#16191d!important;
+  opacity:1!important;
+  filter:none!important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"]>div,
+[data-testid="stSelectbox"] [role="combobox"]{
+  background-color:#fff!important;
+  border-color:#b6bec7!important;
+  min-height:42px!important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] svg{color:#1c1f22!important;fill:#1c1f22!important;opacity:1!important;}
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"] *,
+[data-testid="stSelectbox"] label p{color:#4e5660!important;-webkit-text-fill-color:#4e5660!important;opacity:1!important;}
+/* The top breadcrumb shares the vertical center of navigation, HTML-style. */
+.dfb-nav-overline{display:flex;align-items:center;min-height:39px;
+ color:#68707a;font-size:11px;font-weight:800;letter-spacing:.16em;}
+.page-lead{padding-top:0!important;padding-bottom:4px!important;}
+.page-lead h1{margin-top:1px!important;margin-bottom:3px!important;}
+.page-lead p{margin:3px 0 1px!important;}
+/* Sophisticated motion matching the HTML prototype, only on entering home. */
+@keyframes dfb-home-reveal{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+.initial-entry .hero{animation:dfb-home-reveal .78s cubic-bezier(.20,.72,.18,1) both!important;}
+.initial-entry .hero h1,.initial-entry .hero p{animation:none!important;}
+.animate-on-entry{animation:dfb-home-reveal .8s .24s cubic-bezier(.20,.72,.18,1) both!important;}
+@media(prefers-reduced-motion:reduce){.initial-entry .hero,.animate-on-entry{animation:none!important;}}
+@media(max-width:850px){.dfb-nav-overline{font-size:9px;letter-spacing:.10em;min-height:34px;}}
+
 """
 st.markdown('<style>'+ (BASE/'assets/style.css').read_text('utf-8')+CLOUD_FIX_CSS+'</style>',unsafe_allow_html=True)
 
@@ -118,15 +155,18 @@ def header(page):
     st.markdown(f'<div class="site-header"><div><span class="brand-kor">대구 외식 상권 내비게이터</span><i class="brand-divider"></i><span class="brand-eng">DAEGU F&amp;B<br>COMMERCIAL NAVIGATOR</span></div><span class="header-right">{right}</span></div>',unsafe_allow_html=True)
 
 def nav(page):
-    # Use real Streamlit buttons rather than a segmented-control whose selected-state
-    # colors depend on the Streamlit version/theme. Active = black, inactive = white.
-    _, nav_column = st.columns([.76,.24], gap='small',vertical_alignment='center')
+    # Match HTML: the section overline sits level with the center of the top buttons.
+    index={'officer':'01','founder':'02','report':'03'}.get(page,'')
+    label=f'{index} / DAEGU FOOD BIZ' if index else ''
+    left_column,nav_column=st.columns([.67,.33],gap='small',vertical_alignment='center')
+    with left_column:
+        st.markdown(f'<div class="dfb-nav-overline">{label}</div>',unsafe_allow_html=True)
     with nav_column:
-        nav_cols = st.columns([1,1,1], gap='small')
-        current = page if page != 'report' else st.session_state.report_source
-        for col, (name, route) in zip(nav_cols, [('처음으로','home'),('담당자용','officer'),('창업자용','founder')]):
+        nav_cols=st.columns([1,1,1],gap='small')
+        current=page if page!='report' else st.session_state.report_source
+        for col,(name,route) in zip(nav_cols,[('처음으로','home'),('담당자용','officer'),('창업자용','founder')]):
             with col:
-                if st.button(name, type='primary' if current==route else 'secondary',
+                if st.button(name,type='primary' if current==route else 'secondary',
                              key=f'nav_button_{route}',use_container_width=True):
                     go(route)
     if page=='report':
@@ -135,7 +175,7 @@ def nav(page):
 
 def page_lead(index,title,subtitle,horizontal=False):
     klass='page-lead page-lead-horizontal' if horizontal else 'page-lead'
-    st.markdown(f'<div class="{klass}"><div class="overline">{index} / DAEGU FOOD BIZ</div><div class="page-lead-flex"><h1>{escape(title)}</h1><p>{escape(subtitle)}</p></div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="{klass}"><div class="page-lead-flex"><h1>{escape(title)}</h1><p>{escape(subtitle)}</p></div></div>',unsafe_allow_html=True)
 
 def fmt_pct(val,digits=1):
     return '—' if pd.isna(val) else f'{float(val)*100:+.{digits}f}%'
@@ -212,21 +252,31 @@ def map_area(role):
         st.caption(f'{st.session_state.gu} 범위만 표시 · 화면에 맞춰 확대 · +/− 버튼 또는 마우스 휠로 확대/축소')
     desc=('확정 법정동 경계' if geom_mode=='legal' else '행정동 경계 기반 임시 미리보기 · 법정동 경계 수령 후 정확히 교체')
     st.markdown(f'<div class="map-sub">{desc} · 지도 위에서 선택하거나 목록에서 법정동을 찾으세요.</div>',unsafe_allow_html=True)
-    with st.spinner('실제 경계 지도를 표시하는 중...'):
-        lm='status' if st.session_state.officer_layer.startswith('3년') else 'diagnosis'
-        fmap,visible=build_map(display_geo,officer_data,founder_data,role,lm,st.session_state.selected_unit,st.session_state.gu)
-        click=st_folium(fmap,height=530,key=f'realmap_{role}_{lm}_{st.session_state.gu}',use_container_width=True,
-                        returned_objects=['last_object_clicked','last_clicked'])
-        obj=click.get('last_object_clicked') if isinstance(click,dict) else None
-        obj=obj or (click.get('last_clicked') if isinstance(click,dict) else None)
-        if isinstance(obj,dict) and 'lat' in obj and 'lng' in obj:
-            here=(round(float(obj['lat']),6),round(float(obj['lng']),6),role,lm,st.session_state.gu)
-            if st.session_state.map_last_click!=here:
-                st.session_state.map_last_click=here
-                chosen=locate_unit(obj['lng'],obj['lat'],visible)
-                if chosen and chosen in O and chosen!=st.session_state.selected_unit:
-                    st.session_state.selected_unit=chosen
-                    st.rerun()
+    lm='status' if st.session_state.officer_layer.startswith('3년') else 'diagnosis'
+    # Build once per map scope and layer. Do not feed selected_unit into Folium HTML:
+    # otherwise a click changes generated HTML and flashes/remounts the Leaflet iframe.
+    # Selected unit remains available to panels and dropdown; JS handles outline on map click.
+    data_sig=(len(officer_data),len(founder_data),geom_mode,
+              int(pd.util.hash_pandas_object(officer_data[['unit','n_active','growth_past3']],index=False).sum()))
+    cache_key=(role,lm,st.session_state.gu,data_sig)
+    map_cache=st.session_state.setdefault('_dfb_map_cache',{})
+    if cache_key not in map_cache:
+        if len(map_cache)>5:map_cache.clear()
+        map_cache[cache_key]=build_map(display_geo,officer_data,founder_data,
+                                       role,lm,'',st.session_state.gu)
+    fmap,visible=map_cache[cache_key]
+    click=st_folium(fmap,height=530,key=f'realmap_{role}_{lm}_{st.session_state.gu}',
+                    use_container_width=True,returned_objects=['last_object_clicked','last_clicked'])
+    obj=click.get('last_object_clicked') if isinstance(click,dict) else None
+    obj=obj or (click.get('last_clicked') if isinstance(click,dict) else None)
+    if isinstance(obj,dict) and 'lat' in obj and 'lng' in obj:
+        here=(round(float(obj['lat']),6),round(float(obj['lng']),6),role,lm,st.session_state.gu)
+        if st.session_state.map_last_click!=here:
+            st.session_state.map_last_click=here
+            chosen=locate_unit(obj['lng'],obj['lat'],visible)
+            if chosen and chosen in O and chosen!=st.session_state.selected_unit:
+                st.session_state.selected_unit=chosen
+                st.rerun()
     if geom_mode!='legal':
         st.markdown(f'<div class="dfb-quick-note">임시 지도: 144개 지역의 실제 현황값은 오른쪽 패널과 선택 목록에 모두 연결되어 있어요. 다만 현재 행정동 경계 150개 중 {map_coverage["collisions"]}개에서 복수 법정동이 겹쳐 대표 지역 1곳만 색칠됩니다. 법정동 경계가 오면 이 왜곡 없이 교체합니다.</div>',unsafe_allow_html=True)
     if role=='officer':
@@ -293,12 +343,12 @@ def officer_panel():
 def officer():
     header('officer');nav('officer')
     page_lead('01','동별 병목 진단','7개 구 정체 동 65곳의 병목 진단 · 144개 지역의 과거 현황 조회')
-    data_status()
     filters('officer')
     left,right=st.columns([1.78,.94],gap='large')
     with left:map_area('officer')
     with right:officer_panel()
     st.caption('모델 기준: 2025년 말 정체 동 65곳 상대 평가. 과거 병목 유형 적중률 70%로 단순 폐업률 규칙보다 성능이 높다고 볼 수 없습니다. 지원 우선순위는 모델이 결정하지 않습니다.')
+    data_status()
 
 def cafe_chart(rec):
     years=list(range(2016,2026))
@@ -339,14 +389,17 @@ def spot_history():
 def founder():
     header('founder');nav('founder')
     page_lead('02','업종별 동 분석','카페·디저트의 개업 후 2년 생존율과 개·폐업 흐름을 살펴봅니다.',horizontal=True)
-    data_status()
     st.radio('창업자용 기능',['카페·디저트 분석','자리 이력 찾기'],horizontal=True,key='founder_mode')
-    if st.session_state.founder_mode=='자리 이력 찾기':spot_history();return
+    if st.session_state.founder_mode=='자리 이력 찾기':
+        spot_history()
+        data_status()
+        return
     st.markdown('<div class="dfb-quick-note">현재 실제 데이터가 제공된 업종은 카페·디저트뿐입니다. 임대료·유동인구·매출은 포함되지 않으며, 과거 기록으로 개별 가게의 성공을 예측하지 않습니다.</div>',unsafe_allow_html=True)
     filters('founder')
     left,right=st.columns([1.78,.94],gap='large')
     with left:map_area('founder')
     with right:founder_panel()
+    data_status()
 
 
 def report_payload(rec):
@@ -474,6 +527,7 @@ def report():
          <div class="report-section"><span class="count">01 / REPORT</span><h3>{'LLM 작성 보고서' if is_llm else '데이터 기반 보고서 미리보기'}</h3><p style="white-space:pre-wrap">{escape(st.session_state.report_output['text'])}</p></div>
          <div class="report-section"><span class="count">02 / POLICY DATA</span><h3>정책과 지원사업</h3><p>{escape(' · '.join(payload['policy_types'])) if payload['policy_types'] else '팀 검토 정책 유형 연결 예정'}</p><p>[연결 예정] 지원사업 DB 연결 후 표시</p></div>
          </div>''',unsafe_allow_html=True)
+    data_status()
 
 pages={'home':landing,'officer':officer,'founder':founder,'report':report}
 pages.get(st.session_state.view,landing)()

@@ -47,19 +47,21 @@ def color_of(rec,mode,founder=None):
 
 class FixedMapControls(MacroElement):
     """Leaflet fixed hover info + reset-extent + optional small-sample diagonal hatch."""
-    def __init__(self,geo_name,bounds,selected_unit='',hatch=False):
+    def __init__(self,geo_name,bounds,selected_unit='',hatch=False,reset_label='대구 전체'):
         super().__init__()
         self._name='FixedMapControls'
         self.geo_name=geo_name
         self.bounds_js=json.dumps(bounds)
         self.selected_js=json.dumps(selected_unit,ensure_ascii=False)
         self.hatch=hatch
+        self.reset_label_js=json.dumps(reset_label,ensure_ascii=False)
         self._template=Template(r"""
         {% macro script(this, kwargs) %}
         (function(){
           var map={{this._parent.get_name()}}, geo={{this.geo_name}};
           var bounds={{this.bounds_js | safe}};
           var chosen={{this.selected_js | safe}};
+          var resetLabel={{this.reset_label_js | safe}};
           function esc(str){return String(str===undefined || str===null?'':str).replace(/[&<>\"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]||ch;});}
           var info=L.control({position:'topright'});
           info.onAdd=function(){this._div=L.DomUtil.create('div','dfb-fixed-info');L.DomEvent.disableClickPropagation(this._div);this.update(null);return this._div;};
@@ -74,15 +76,18 @@ class FixedMapControls(MacroElement):
           };
           info.addTo(map);
           var reset=L.control({position:'topleft'});
-          reset.onAdd=function(){var b=L.DomUtil.create('button','dfb-map-reset'); b.type='button';b.innerHTML='대구 전체 ↺';b.title='대구 전체 보기';
+          reset.onAdd=function(){var b=L.DomUtil.create('button','dfb-map-reset'); b.type='button';b.textContent=resetLabel+' ↺';b.title=resetLabel+' 보기';
             L.DomEvent.disableClickPropagation(b);L.DomEvent.on(b,'click',function(e){L.DomEvent.stop(e);map.fitBounds(bounds,{padding:[12,12]});});return b;};
           reset.addTo(map);
+          var active=null;
           geo.eachLayer(function(layer){
             var p=layer.feature.properties;
             layer.on('mouseover',function(){info.update(p);layer.setStyle({weight:2,color:'#16191d',fillOpacity:.96});layer.bringToFront();});
-            layer.on('mouseout',function(){info.update(null);geo.resetStyle(layer);});
-            layer.on('click',function(){info.update(p);});
-            if(p.UNIT===chosen){info.update(p);}
+            layer.on('mouseout',function(){info.update(active ? active.feature.properties : null);geo.resetStyle(layer);
+              if(layer===active)layer.setStyle({weight:2.3,color:'#15191d'});});
+            layer.on('click',function(){if(active && active!==layer)geo.resetStyle(active);active=layer;
+              layer.setStyle({weight:2.3,color:'#15191d'});info.update(p);});
+            if(p.UNIT===chosen){active=layer;info.update(p);}
           });
           {% if this.hatch %}
           function applyHatch(){
@@ -157,7 +162,8 @@ def build_map(features, officer, founder, role, layer_mode, selected_unit,gu='�
     gj=folium.GeoJson(geo,name='지도 경계',style_function=style,
                       highlight_function=lambda f:{'weight':2,'color':'#111111','fillOpacity':.95})
     gj.add_to(m)
-    FixedMapControls(gj.get_name(),bounds,selected_unit,hatch=(role=='founder')).add_to(m)
+    reset_label='대구 전체' if gu=='대구 전체' else f'{gu} 전체'
+    FixedMapControls(gj.get_name(),bounds,selected_unit,hatch=(role=='founder'),reset_label=reset_label).add_to(m)
     m.get_root().header.add_child(folium.Element('''<style>
     .dfb-fixed-info{width:216px;box-sizing:border-box;background:rgba(255,255,255,.97);border:1px solid #c9ced4;box-shadow:0 2px 12px #0000000b;padding:12px 13px;font-family:Arial,sans-serif;font-size:11px;color:#1d2024;}
     .dfb-fixed-heading{font-weight:800;font-size:12px;padding-bottom:7px;border-bottom:1px solid #e4e7ea;margin-bottom:6px;}
