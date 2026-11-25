@@ -14,7 +14,50 @@ from data_access import (BASE,read_files,read_postgres,connection_url,load_geome
 from map_views import (build_map,ENTRY,SURV,FOUNDER_COLORS,GRAY,OUT_SCOPE,NO_DATA,status_label)
 
 st.set_page_config(page_title='DAEGU FOOD BIZ · 대구 외식 상권',page_icon='◼',layout='wide',initial_sidebar_state='collapsed')
-st.markdown('<style>'+ (BASE/'assets/style.css').read_text('utf-8')+'</style>',unsafe_allow_html=True)
+# Self-contained cloud hotfix: only app.py needs replacement on GitHub.
+# Keep the original editorial stylesheet unchanged; append targeted overrides.
+CLOUD_FIX_CSS = r"""
+/* v0.8 cloud fix: readable native selectors, HTML-prototype-like compact nav. */
+[data-testid="stSelectbox"] label,
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"],
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p,
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"] span {
+  color:#555C65!important;opacity:1!important;font-weight:650!important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stSelectbox"] [data-baseweb="select"]>div,
+[data-testid="stSelectbox"] [data-baseweb="select"] [role="combobox"] {
+  color:#17191C!important;background-color:#FFFFFF!important;
+  border-color:#C9CDD3!important;opacity:1!important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] span,
+[data-testid="stSelectbox"] [data-baseweb="select"] input,
+[data-testid="stSelectbox"] [role="combobox"] *,
+[data-testid="stSelectbox"] [data-baseweb="select"] [data-testid="stMarkdownContainer"] p {
+  color:#17191C!important;opacity:1!important;-webkit-text-fill-color:#17191C!important;
+}
+/* Normal buttons, not theme-colored segmented controls; preserve HTML active-black nav. */
+[class*="st-key-nav_button_"] button {
+  background:#FFFFFF!important;color:#1C1D20!important;border:1px solid #B7BBC1!important;
+  min-height:36px!important;padding:5px 7px!important;border-radius:0!important;
+  font-weight:750!important;font-size:12px!important;white-space:nowrap!important;
+}
+[class*="st-key-nav_button_"] button[kind="primary"] {
+  background:#1B1C1F!important;color:#FFFFFF!important;border-color:#1B1C1F!important;
+}
+[class*="st-key-nav_button_"] button:hover {
+  background:#F3F4F5!important;color:#151619!important;border-color:#1B1C1F!important;
+}
+[class*="st-key-nav_button_"] button[kind="primary"]:hover {
+  background:#33353A!important;color:#FFFFFF!important;border-color:#33353A!important;
+}
+[class*="st-key-nav_button_"] button p,
+[class*="st-key-nav_button_"] button span { color:inherit!important; }
+@media(max-width:700px){
+  [class*="st-key-nav_button_"] button{font-size:10px!important;padding:5px 2px!important;min-height:32px!important;}
+}
+"""
+st.markdown('<style>'+ (BASE/'assets/style.css').read_text('utf-8')+CLOUD_FIX_CSS+'</style>',unsafe_allow_html=True)
 
 @st.cache_data(ttl=60,show_spinner=False)
 def get_data(db_url):
@@ -45,7 +88,7 @@ GUS=sorted(officer_data['gu'].dropna().unique())
 REPORT_EXAMPLES={r['unit']:r for r in json.loads((BASE/'llm/report_input_example.json').read_text('utf-8'))}
 POLICY_RULES=(BASE/'llm/report_rules.md').read_text('utf-8')
 if 'view' not in st.session_state:st.session_state.view='home'
-if 'unit' not in st.session_state:st.session_state.unit='중구 동성로2가' if '중구 동성로2가' in O else ALL_UNITS[0]
+if 'selected_unit' not in st.session_state:st.session_state.selected_unit='중구 동성로2가' if '중구 동성로2가' in O else ALL_UNITS[0]
 if 'gu' not in st.session_state:st.session_state.gu='대구 전체'
 if 'officer_layer' not in st.session_state:st.session_state.officer_layer='병목 유형 · 확신도'
 if 'founder_mode' not in st.session_state:st.session_state.founder_mode='카페·디저트 분석'
@@ -70,26 +113,24 @@ def go(page):
     if remember_page(page):
         st.rerun()
 
-def nav_changed():
-    page=LABEL_PAGES.get(st.session_state.nav_segment)
-    if page:remember_page(page)
-
 def header(page):
     right={'home':'ROLE SELECT','officer':'01 / DISTRICT DIAGNOSIS','founder':'02 / FOUNDER ANALYTICS','report':'03 / DISTRICT REPORT'}[page]
     st.markdown(f'<div class="site-header"><div><span class="brand-kor">대구 외식 상권 내비게이터</span><i class="brand-divider"></i><span class="brand-eng">DAEGU F&amp;B<br>COMMERCIAL NAVIGATOR</span></div><span class="header-right">{right}</span></div>',unsafe_allow_html=True)
 
 def nav(page):
-    # No extra back/forward row: the three role buttons provide all primary routes.
-    left,right=st.columns([.33,.67],gap='small',vertical_alignment='center')
-    with right:
-        p=page if page!='report' else st.session_state.report_source
-        expected=PAGE_LABELS[p]
-        if st.session_state.get('nav_segment')!=expected:
-            st.session_state.nav_segment=expected
-        st.segmented_control('메인 메뉴', ['처음으로','담당자용','창업자용'],key='nav_segment',
-                             label_visibility='collapsed',on_change=nav_changed,selection_mode='single')
+    # Use real Streamlit buttons rather than a segmented-control whose selected-state
+    # colors depend on the Streamlit version/theme. Active = black, inactive = white.
+    _, nav_column = st.columns([.76,.24], gap='small',vertical_alignment='center')
+    with nav_column:
+        nav_cols = st.columns([1,1,1], gap='small')
+        current = page if page != 'report' else st.session_state.report_source
+        for col, (name, route) in zip(nav_cols, [('처음으로','home'),('담당자용','officer'),('창업자용','founder')]):
+            with col:
+                if st.button(name, type='primary' if current==route else 'secondary',
+                             key=f'nav_button_{route}',use_container_width=True):
+                    go(route)
     if page=='report':
-        st.caption(f'처음으로 / {PAGE_LABELS.get(st.session_state.report_source,"담당자용")} / {st.session_state.unit} / 진단 리포트')
+        st.caption(f'처음으로 / {PAGE_LABELS.get(st.session_state.report_source,"담당자용")} / {st.session_state.selected_unit} / 진단 리포트')
 
 
 def page_lead(index,title,subtitle,horizontal=False):
@@ -138,20 +179,32 @@ def data_status():
         if st.button('데이터 다시 조회',key='refresh_data'):
             get_data.clear();get_geometry.clear();st.rerun()
 
+def unit_picker_changed():
+    """Read widget value in its callback; do not set a rendered widget key."""
+    st.session_state.selected_unit=st.session_state.unit_picker
+
+
 def filters(role):
+    # Selected district is independent of the Streamlit selectbox widget's key.
+    # This allows a map click (later in the same run) to change the selected unit
+    # without StreamlitWidgetAlreadyInstantiatedError.
     if role=='officer':
-        c0,c1,c2=st.columns([.40,.25,.35],gap='small',vertical_alignment='bottom')
+        c0,c1,c2,space=st.columns([2.9,2.1,2.8,7.2],gap='small',vertical_alignment='bottom')
         with c0:
             st.selectbox('지도 레이어',['병목 유형 · 확신도','3년 점포 증감 · 현황(예측 아님)'],key='officer_layer')
     else:
-        c1,c2=st.columns([.40,.60],gap='small',vertical_alignment='bottom')
+        c1,c2,space=st.columns([2.1,2.8,9.9],gap='small',vertical_alignment='bottom')
     with c1:
         selected_gu=st.selectbox('구·군 선택',['대구 전체']+GUS,key='gu')
     options=[u for u in ALL_UNITS if selected_gu=='대구 전체' or O[u]['gu']==selected_gu]
-    if st.session_state.unit not in options:
-        st.session_state.unit=options[0]
+    if st.session_state.selected_unit not in options:
+        st.session_state.selected_unit=options[0]
+    # Assign unit_picker only before its widget is instantiated in this run.
+    if st.session_state.get('unit_picker') != st.session_state.selected_unit:
+        st.session_state.unit_picker=st.session_state.selected_unit
     with c2:
-        st.selectbox('법정동·읍면 선택',options,key='unit')
+        st.selectbox('법정동·읍면 선택',options,key='unit_picker',on_change=unit_picker_changed)
+
 
 def map_area(role):
     st.markdown('<div class="map-title">DAEGU · DISTRICT MAP</div>',unsafe_allow_html=True)
@@ -161,7 +214,7 @@ def map_area(role):
     st.markdown(f'<div class="map-sub">{desc} · 지도 위에서 선택하거나 목록에서 법정동을 찾으세요.</div>',unsafe_allow_html=True)
     with st.spinner('실제 경계 지도를 표시하는 중...'):
         lm='status' if st.session_state.officer_layer.startswith('3년') else 'diagnosis'
-        fmap,visible=build_map(display_geo,officer_data,founder_data,role,lm,st.session_state.unit,st.session_state.gu)
+        fmap,visible=build_map(display_geo,officer_data,founder_data,role,lm,st.session_state.selected_unit,st.session_state.gu)
         click=st_folium(fmap,height=530,key=f'realmap_{role}_{lm}_{st.session_state.gu}',use_container_width=True,
                         returned_objects=['last_object_clicked','last_clicked'])
         obj=click.get('last_object_clicked') if isinstance(click,dict) else None
@@ -171,8 +224,8 @@ def map_area(role):
             if st.session_state.map_last_click!=here:
                 st.session_state.map_last_click=here
                 chosen=locate_unit(obj['lng'],obj['lat'],visible)
-                if chosen and chosen in O and chosen!=st.session_state.unit:
-                    st.session_state.unit=chosen
+                if chosen and chosen in O and chosen!=st.session_state.selected_unit:
+                    st.session_state.selected_unit=chosen
                     st.rerun()
     if geom_mode!='legal':
         st.markdown(f'<div class="dfb-quick-note">임시 지도: 144개 지역의 실제 현황값은 오른쪽 패널과 선택 목록에 모두 연결되어 있어요. 다만 현재 행정동 경계 150개 중 {map_coverage["collisions"]}개에서 복수 법정동이 겹쳐 대표 지역 1곳만 색칠됩니다. 법정동 경계가 오면 이 왜곡 없이 교체합니다.</div>',unsafe_allow_html=True)
@@ -202,7 +255,7 @@ def map_area(role):
         st.caption('색상은 카페·디저트 개업 후 2년 생존율(표본 보정값)입니다. 분석 단위와 경계 단위가 일치하지 않는 임시 지도임에 유의해 주세요.')
 
 def officer_panel():
-    u=st.session_state.unit
+    u=st.session_state.selected_unit
     rec=O[u];stat=status_label(rec)
     conf=rec.get('confidence');acc=rec.get('val_accuracy')
     rank_html=''
@@ -261,7 +314,7 @@ def cafe_chart(rec):
     st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
 
 def founder_panel():
-    rec=F.get(st.session_state.unit)
+    rec=F.get(st.session_state.selected_unit)
     st.markdown('<div class="map-title">CAFE · LOCAL PROFILE</div><div class="map-sub">카페·디저트 · 개업 후 2년 생존율 분석</div>',unsafe_allow_html=True)
     if not rec:
         st.info('해당 법정동의 카페 자료가 없습니다.');return
@@ -386,7 +439,7 @@ def enforce_required_survey(text,payload):
 def report():
     header('report');nav('report')
     page_lead('03','동별 진단 리포트','모델의 판단 근거를 현황·확신도와 구분해 확인합니다.')
-    u=st.session_state.unit;rec=O.get(u)
+    u=st.session_state.selected_unit;rec=O.get(u)
     if not rec or not rec['diagnosis_scope'].startswith('진단'):
         st.info('이 동은 정체 동 병목 진단 대상이 아니어서 병목 리포트를 생성하지 않습니다.')
         if st.button('담당자 지도로 돌아가기'):go('officer')
