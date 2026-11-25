@@ -42,12 +42,8 @@ def html_from_sources(signature):
     stop=html.index(';\nconst REPORT_BASE=',start)
     return html[:start]+'const DATA='+encoded+html[stop:]
 
-try:
-    html=html_from_sources(file_signature())
-except Exception as exc:
-    st.error('전달 데이터 또는 화면을 불러오지 못했습니다.')
-    st.code(f'{type(exc).__name__}: {exc}')
-    st.stop()
+# Defer loading the heavy SVG map/HTML until a map route is requested.
+# New-tab reports should not rebuild the map before showing their own content.
 
 # v1.1: Secure report route. Existing HTML/SVG UI remains unchanged.
 GEMINI_MODEL = 'gemini-3.5-flash-lite'   # verified free-tier text generation model
@@ -228,6 +224,22 @@ def show_report_page(unit: str):
        color:#17191c!important;margin:0 0 9px!important;opacity:1!important}
     .dfb-report-subtitle{font-size:14px;color:#15171b!important;font-weight:800;
         letter-spacing:-.02em;padding:9px 0 13px}
+    /* Report header only: loosen metadata spacing without changing the site UI. */
+    .dfb-report-meta{font-size:14px;color:#666e77!important;line-height:1.85!important;
+       margin:13px 0 0!important;letter-spacing:-.012em}
+    .dfb-report-diagnosis{font-size:16px;color:#17191c!important;line-height:1.85!important;
+       margin:13px 0 0!important;font-weight:650}
+    .dfb-report-context{font-size:13px;color:#727982!important;line-height:1.85!important;
+       margin:13px 0 0!important}
+    .dfb-report-section-title{font-size:23px!important;line-height:1.5!important;
+       font-weight:800!important;letter-spacing:-.045em;margin:29px 0 17px!important}
+    .dfb-close-tab{box-sizing:border-box;display:flex;justify-content:center;align-items:center;
+       width:100%;min-height:45px;white-space:nowrap;background:#17181b!important;
+       color:#fff!important;-webkit-text-fill-color:#fff!important;
+       border:1px solid #17181b;border-radius:0;font-size:12px;font-weight:750;
+       cursor:pointer;padding:8px 10px;font-family:inherit}
+    .dfb-close-tab:hover{background:#34373b!important;border-color:#34373b!important}
+    .dfb-close-fallback{color:#575e66!important;font-size:12px;line-height:1.5;margin-top:7px}
     [data-testid="stButton"] button,
     [data-testid="stDownloadButton"] button {
        background:#17181b!important;border:1px solid #17181b!important;
@@ -265,9 +277,18 @@ def show_report_page(unit: str):
     }
     </style>""",unsafe_allow_html=True)
     st.markdown('<div class="dfb-rule"></div><div class="dfb-kicker">DAEGU FOOD BIZ · DISTRICT REPORT</div><div class="dfb-report-title">동별 진단 리포트</div>',unsafe_allow_html=True)
-    st.caption(f"{unit} · 2025년 말 · 검증된 외식 점포 분석 자료")
-    st.markdown('**병목 유형:** '+str(d['diagnosis']['bottleneck'])+'　|　**확신도:** '+str(d['diagnosis']['confidence']))
-    st.caption('대구 정체 동 65곳과의 상대 평가 · 과거 적중률은 지역별 성공 확률이 아닙니다.')
+    # Group only the report header lines so their spacing is consistent and readable.
+    meta=escape(f"{unit} · 2025년 말 · 검증된 외식 점포 분석 자료")
+    bottleneck=escape(str(d['diagnosis']['bottleneck']))
+    confidence=escape(str(d['diagnosis']['confidence']))
+    st.markdown(
+        f'<div class="dfb-report-meta">{meta}</div>'
+        f'<div class="dfb-report-diagnosis"><strong>병목 유형:</strong> {bottleneck}'
+        f'　 |　 <strong>확신도:</strong> {confidence}</div>'
+        '<div class="dfb-report-context">대구 정체 동 65곳과의 상대 평가 · '
+        '과거 적중률은 지역별 성공 확률이 아닙니다.</div>',
+        unsafe_allow_html=True,
+    )
     base=_grounded_draft(d)
     generated=st.session_state.get('dfb_generated',{}).get(unit)
     report_modes=st.session_state.setdefault('dfb_report_modes',{})
@@ -276,7 +297,7 @@ def show_report_page(unit: str):
         mode='draft'
         report_modes[unit]='draft'
 
-    st.markdown('### 근거 자료 기반 보고서')
+    st.markdown('<div class="dfb-report-section-title">근거 자료 기반 보고서</div>',unsafe_allow_html=True)
     if mode=='ai' and generated:
         st.markdown('<div class="dfb-report-subtitle">Gemini AI 작성 보고서</div>',unsafe_allow_html=True)
         # Native markdown for LLM-generated headings/lists, with explicit high
@@ -326,8 +347,32 @@ def show_report_page(unit: str):
             file_name=f'daegu_food_biz_{unit.replace(" ","_")}_report.txt',
             mime='text/plain;charset=utf-8',use_container_width=True)
     with c4:
-        back_url=escape(_report_back_url(unit),quote=True)
-        st.markdown(f'<a class="dfb-back-link" href="{back_url}" target="_self">← 지도로 돌아가기</a>',unsafe_allow_html=True)
+        # The report was opened in a separate browser tab from the map. Close
+        # this tab instead of navigating/reloading the expensive map iframe.
+        # A tab opened manually from a URL may not be script-closable.
+        st.html('''<button type="button" id="dfb-close-report-tab" class="dfb-close-tab">✕ 보고서 탭 닫기</button>
+        <div id="dfb-close-report-fallback" class="dfb-close-fallback" hidden></div>
+        <script>
+        (() => {
+          const button = document.getElementById('dfb-close-report-tab');
+          if (!button || button.dataset.bound === '1') return;
+          button.dataset.bound = '1';
+          button.addEventListener('click', () => {
+            window.close();
+            // Only visible if browser disallows programmatic closing.
+            setTimeout(() => {
+              const fallback = document.getElementById('dfb-close-report-fallback');
+              if (fallback && !window.closed) {
+                const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+                fallback.textContent = mac
+                  ? '브라우저에서 닫기를 제한했습니다. ⌘W로 이 탭을 닫아 주세요.'
+                  : '브라우저에서 닫기를 제한했습니다. Ctrl+W로 이 탭을 닫아 주세요.';
+                fallback.hidden = false;
+              }
+            }, 200);
+          });
+        })();
+        </script>''', unsafe_allow_javascript=True)
 
     if not key:
         st.info('무료 Gemini API 키가 아직 등록되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록하면 AI 보고서를 생성할 수 있습니다.')
@@ -338,6 +383,13 @@ def show_report_page(unit: str):
 requested_unit=st.query_params.get('report_unit')
 if requested_unit:
     show_report_page(str(requested_unit))
+    st.stop()
+
+try:
+    html=html_from_sources(file_signature())
+except Exception as exc:
+    st.error('전달 데이터 또는 화면을 불러오지 못했습니다.')
+    st.code(f'{type(exc).__name__}: {exc}')
     st.stop()
 
 # Streamlit>=1.67 auto-sizes the iframe to its HTML content.
