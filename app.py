@@ -5,8 +5,9 @@ inputs refresh when files change. PostgreSQL/LLM are not yet connected.
 from __future__ import annotations
 import json
 import os
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, urlencode
 import requests
+from html import escape
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -169,56 +170,169 @@ def _gemini_generate_cached(unit: str, data_json: str, _api_key: str):
         raise RuntimeError('Gemini가 텍스트를 반환하지 않았습니다. 검증된 기본 보고서를 사용해 주세요.')
     return text.strip()
 
+def _report_back_url(unit: str) -> str:
+    """Return to the officer map and restore the previously viewed region/layer."""
+    base_url=urlsplit(st.context.url)
+    available_gus=set(pd.read_csv(ROOT/'data/officer_dongs.csv',usecols=['gu'])['gu'].dropna())
+    gu=st.query_params.get('return_gu','대구 전체')
+    if gu!='대구 전체' and gu not in available_gus:
+        gu='대구 전체'
+    layer=st.query_params.get('return_layer','diagnosis')
+    if layer not in ('diagnosis','status'):
+        layer='diagnosis'
+    query=urlencode({'map_unit':unit,'map_gu':gu,'map_layer':layer})
+    return urlunsplit((base_url.scheme,base_url.netloc,base_url.path,query,''))
+
+
+def _draft_html(base: str) -> str:
+    """Render source-only text as a legible report, never as pale code text."""
+    chunks=[]
+    for line in base.splitlines():
+        line=line.strip()
+        if not line:
+            continue
+        safe_line=escape(line)
+        if len(line)>4 and line[:2].isdigit() and line[2:5]==' / ':
+            chunks.append(f'<h3>{safe_line}</h3>')
+        else:
+            chunks.append(f'<p>{safe_line}</p>')
+    return '<section class="dfb-report-paper">'+''.join(chunks)+'</section>'
+
+
 def show_report_page(unit: str):
     d=_input_for_report(unit)
     if d is None:
         st.error('선택한 지역의 데이터가 없습니다.')
-        st.link_button('← 동별 지도 돌아가기',urlsplit(st.context.url)._replace(query='',fragment='').geturl())
         return
     if d.get('out_of_scope'):
         st.warning('이 지역은 병목 예측 대상이 아닙니다. 담당자용 지도에서 과거 현황만 확인할 수 있습니다.')
-        st.link_button('← 동별 지도 돌아가기',urlsplit(st.context.url)._replace(query='',fragment='').geturl())
         return
-    st.markdown('<style>[data-testid="stMainBlockContainer"],.block-container{max-width:940px!important;margin:0 auto!important;padding:32px 30px!important;} .dfb-report-title{font-weight:850;font-size:42px;letter-spacing:-.065em;margin:12px 0 8px}.dfb-rule{border-top:1px solid #242424;margin-bottom:24px}.dfb-kicker{font-size:11px;letter-spacing:.17em;color:#777d86;font-weight:750}</style>',unsafe_allow_html=True)
+
+    # These styles apply only to the native report route; the HTML map/landing
+    # page, animations and filters are not altered.
+    st.markdown("""<style>
+    [data-testid="stMainBlockContainer"],.block-container{
+      max-width:1020px!important;margin:0 auto!important;padding:32px 28px 48px!important;
+    }
+    .dfb-report-title{font-weight:850;font-size:42px;letter-spacing:-.065em;margin:12px 0 8px;color:#111214!important}
+    .dfb-rule{border-top:1px solid #242424;margin-bottom:24px}
+    .dfb-kicker{font-size:11px;letter-spacing:.17em;color:#6b717a!important;font-weight:750}
+    .dfb-report-paper{
+      background:#fff;border:1px solid #d9dce0;padding:27px 30px 31px;
+      color:#17191c!important;font-size:14px;line-height:1.8;
+    }
+    .dfb-report-paper h3{font-size:17px!important;font-weight:800!important;color:#111214!important;
+       margin:23px 0 8px!important;letter-spacing:-.03em}
+    .dfb-report-paper h3:first-child{margin-top:0!important}
+    .dfb-report-paper p{font-size:14px!important;line-height:1.8!important;
+       color:#17191c!important;margin:0 0 9px!important;opacity:1!important}
+    .dfb-report-subtitle{font-size:14px;color:#15171b!important;font-weight:800;
+        letter-spacing:-.02em;padding:9px 0 13px}
+    [data-testid="stButton"] button,
+    [data-testid="stDownloadButton"] button {
+       background:#17181b!important;border:1px solid #17181b!important;
+       color:#fff!important;-webkit-text-fill-color:#fff!important;
+       border-radius:0!important;min-height:45px!important;
+       font-size:12px!important;font-weight:750!important;
+       width:100%!important;padding:8px 10px!important;
+    }
+    [data-testid="stButton"] button p,
+    [data-testid="stDownloadButton"] button p,
+    [data-testid="stButton"] button span,
+    [data-testid="stDownloadButton"] button span{
+       color:#fff!important;-webkit-text-fill-color:#fff!important;
+       white-space:nowrap!important;
+    }
+    [data-testid="stButton"] button[kind="primary"],
+    [data-testid="stButton"] button[data-testid="stBaseButton-primary"]{
+       background:#B52E43!important;border-color:#B52E43!important;
+    }
+    [data-testid="stButton"] button:hover,
+    [data-testid="stDownloadButton"] button:hover{
+       background:#34373b!important;border-color:#34373b!important;
+    }
+    [data-testid="stButton"] button[kind="primary"]:hover,
+    [data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover{background:#96283A!important;border-color:#96283A!important}
+    .dfb-back-link{box-sizing:border-box;display:flex;justify-content:center;
+       align-items:center;text-align:center;text-decoration:none!important;
+       background:#17181b!important;color:#fff!important;-webkit-text-fill-color:#fff!important;
+       border:1px solid #17181b;min-height:45px;width:100%;font-size:12px;
+       font-weight:750;padding:8px 10px;white-space:nowrap}
+    .dfb-back-link:hover{background:#34373b!important;color:#fff!important}
+    @media print{
+      [data-testid="stButton"],[data-testid="stDownloadButton"],.dfb-back-link{display:none!important}
+      .dfb-report-paper{border:0!important;padding:0!important}
+    }
+    </style>""",unsafe_allow_html=True)
     st.markdown('<div class="dfb-rule"></div><div class="dfb-kicker">DAEGU FOOD BIZ · DISTRICT REPORT</div><div class="dfb-report-title">동별 진단 리포트</div>',unsafe_allow_html=True)
     st.caption(f"{unit} · 2025년 말 · 검증된 외식 점포 분석 자료")
     st.markdown('**병목 유형:** '+str(d['diagnosis']['bottleneck'])+'　|　**확신도:** '+str(d['diagnosis']['confidence']))
     st.caption('대구 정체 동 65곳과의 상대 평가 · 과거 적중률은 지역별 성공 확률이 아닙니다.')
     base=_grounded_draft(d)
-    st.markdown('### 근거 자료 기반 보고서')
     generated=st.session_state.get('dfb_generated',{}).get(unit)
-    if generated:
-        st.markdown(generated)
-        st.caption('Gemini AI 작성 · 팀의 실제 분석 데이터 기반 · 최종 검토 필요')
+    report_modes=st.session_state.setdefault('dfb_report_modes',{})
+    mode=report_modes.get(unit,'ai' if generated else 'draft')
+    if mode=='ai' and not generated:
+        mode='draft'
+        report_modes[unit]='draft'
+
+    st.markdown('### 근거 자료 기반 보고서')
+    if mode=='ai' and generated:
+        st.markdown('<div class="dfb-report-subtitle">Gemini AI 작성 보고서</div>',unsafe_allow_html=True)
+        # Native markdown for LLM-generated headings/lists, with explicit high
+        # contrast styles defined above. Never send this text as pale st.text().
+        with st.container(border=True):
+            st.markdown(generated)
     else:
-        st.text(base)
-        st.caption('AI가 작성한 문서가 아닌 검증된 데이터 기반 기본 초안입니다.')
-    # Non-removable on-site requirement: not dependent on model's output.
+        st.markdown('<div class="dfb-report-subtitle">검증된 데이터 기반 기본 초안</div>',unsafe_allow_html=True)
+        st.markdown(_draft_html(base),unsafe_allow_html=True)
+
+    # Must remain outside the AI-generated document so the LLM cannot omit it.
     if d['diagnosis']['bottleneck']=='진입 병목':
         st.warning('**필수 현장 조사** — '+_field_survey('진입 병목'))
+
     st.markdown('---')
-    key=_key(); confirmed=_free_confirmed()
+    key=_key()
+    confirmed=_free_confirmed()
+    ready=bool(key and confirmed)
+    has_ai=bool(generated)
+    # All controls are kept on one row with the same monochrome UI language;
+    # only the AI action uses an accent color. No captions under buttons.
+    c1,c2,c3,c4=st.columns([1.0,1.75,1.3,1.42],gap='small')
+    with c1:
+        if st.button('초안 보기',key=f'draft_{unit}',use_container_width=True):
+            report_modes[unit]='draft'
+            st.rerun()
+    with c2:
+        ai_label='AI 보고서 보기' if has_ai and mode=='draft' else ('Gemini 무료 AI 보고서 생성' if not has_ai else 'AI 보고서 다시 생성')
+        if st.button(ai_label,type='primary',key=f'gemini_{unit}',disabled=not (ready or (has_ai and mode=='draft')),use_container_width=True):
+            if has_ai and mode=='draft':
+                report_modes[unit]='ai'
+                st.rerun()
+            else:
+                with st.spinner('공개 분석 자료로 보고서를 작성하는 중입니다...'):
+                    try:
+                        result=_gemini_generate_cached(unit,json.dumps(d,ensure_ascii=False,sort_keys=True,default=str),key)
+                        st.session_state.setdefault('dfb_generated',{})[unit]=result
+                        report_modes[unit]='ai'
+                        st.rerun()
+                    except (RuntimeError,requests.RequestException) as exc:
+                        st.error(str(exc))
+    with c3:
+        text_to_save=(generated if mode=='ai' and generated else base)
+        if d['diagnosis']['bottleneck']=='진입 병목':
+            text_to_save+='\n\n필수 현장 조사: '+_field_survey('진입 병목')
+        st.download_button('보고서 다운로드',data=text_to_save,
+            file_name=f'daegu_food_biz_{unit.replace(" ","_")}_report.txt',
+            mime='text/plain;charset=utf-8',use_container_width=True)
+    with c4:
+        back_url=escape(_report_back_url(unit),quote=True)
+        st.markdown(f'<a class="dfb-back-link" href="{back_url}" target="_self">← 지도로 돌아가기</a>',unsafe_allow_html=True)
+
     if not key:
-        st.info('Gemini API 키가 아직 설정되지 않았습니다. Streamlit Cloud의 Secrets에 GEMINI_API_KEY를 등록하면 무료 AI 보고서 생성 버튼이 활성화됩니다.')
+        st.info('무료 Gemini API 키가 아직 등록되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록하면 AI 보고서를 생성할 수 있습니다.')
     elif not confirmed:
-        st.warning('과금을 막기 위해 AI 생성을 비활성화했습니다. Google AI Studio에서 무료 요금제·결제 미연결을 확인하고 GEMINI_FREE_TIER_CONFIRMED = true를 설정해 주세요.')
-    else:
-        if st.button('Gemini 무료 AI 보고서 생성', type='primary', key=f'gen_{unit}'):
-            with st.spinner('공개 분석 자료로 보고서를 작성하는 중입니다...'):
-                try:
-                    result=_gemini_generate_cached(unit, json.dumps(d,ensure_ascii=False,sort_keys=True,default=str), key)
-                    st.session_state.setdefault('dfb_generated',{})[unit]=result
-                    st.rerun()
-                except (RuntimeError, requests.RequestException) as exc:
-                    st.error(str(exc))
-        st.caption(f'사용 모델: {GEMINI_MODEL} · 무료 티어 전용 프로젝트에서만 사용하세요. 제한 초과 시 유료 자동 전환은 구현하지 않았습니다.')
-    st.download_button('보고서 텍스트 다운로드', data=(generated or base)+('\n\n필수 현장 조사: '+_field_survey('진입 병목') if d['diagnosis']['bottleneck']=='진입 병목' else ''), file_name=f'daegu_food_biz_{unit.replace(" ","_")}_report.txt',mime='text/plain;charset=utf-8')
-    st.caption('인쇄: 브라우저에서 ⌘P(Mac) 또는 Ctrl+P(Windows)를 눌러 PDF 저장/인쇄할 수 있습니다.')
-    try:
-        home=urlsplit(st.context.url)._replace(query='',fragment='').geturl()
-        st.link_button('← DAEGU FOOD BIZ 지도로 돌아가기',home)
-    except Exception:
-        pass
+        st.warning('무료 프로젝트·결제 미연결 여부를 확인한 후 GEMINI_FREE_TIER_CONFIRMED = true를 설정해 주세요.')
 
 # Handle native report page in a new tab. This keeps the existing map mounted.
 requested_unit=st.query_params.get('report_unit')
@@ -232,4 +346,24 @@ if requested_unit:
 parts=urlsplit(st.context.url)
 report_base=urlunsplit((parts.scheme,parts.netloc,parts.path,'',''))
 html=html.replace('const REPORT_BASE="";', 'const REPORT_BASE='+json.dumps(report_base,ensure_ascii=False).replace('<','\u003c')+';',1)
+# Initial map state is restored only for the native report back-link.
+requested_map_unit=st.query_params.get('map_unit')
+if requested_map_unit:
+    officer_df=pd.read_csv(ROOT/'data/officer_dongs.csv',usecols=['unit','gu'])
+    match=officer_df.loc[officer_df['unit'].eq(requested_map_unit)]
+    if not match.empty:
+        requested_gu=st.query_params.get('map_gu','대구 전체')
+        valid_gus=set(officer_df['gu'].dropna())
+        if requested_gu!='대구 전체' and requested_gu not in valid_gus:
+            requested_gu='대구 전체'
+        if requested_gu!='대구 전체' and requested_gu!=match.iloc[0]['gu']:
+            requested_gu='대구 전체'
+        requested_layer=st.query_params.get('map_layer','diagnosis')
+        if requested_layer not in ('diagnosis','status'):
+            requested_layer='diagnosis'
+        values=[json.dumps(x,ensure_ascii=False).replace('<','\\u003c') for x in (requested_map_unit,requested_gu,requested_layer)]
+        init=('stats.page="officer";stats.unit='+values[0]+';stats.gu='+values[1]
+              +';stats.layer='+values[2]+';stats.firstHome=false;')
+        html=html.replace('function pageGo(p){',init+'\nfunction pageGo(p){',1)
+
 st.iframe(html,width='stretch',height='content',alt='대구 외식 상권 내비게이터: 동별 병목 진단 및 창업자 분석')

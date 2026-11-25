@@ -63,7 +63,7 @@ select option{color:#121417;background:#fff}
 const REPORT_BASE="";
 function reportLink(unit){
  if(!REPORT_BASE)return '<button class="primary action" data-page="report">이 동의 진단 리포트 보기 ↗</button>';
- const url=REPORT_BASE+'?report_unit='+encodeURIComponent(unit);
+ const url=REPORT_BASE+'?report_unit='+encodeURIComponent(unit)+'&return_gu='+encodeURIComponent(stats.gu)+'&return_layer='+encodeURIComponent(stats.layer);
  return '<a class="report-anchor action" href="'+safe(url)+'" target="_blank" rel="noopener noreferrer">이 동의 진단 리포트 보기 ↗</a>';
 }
 const off=Object.fromEntries(DATA.officer.map(r=>[r.unit,r]));
