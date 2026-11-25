@@ -64,8 +64,18 @@ const REPORT_BASE="";
 function reportLink(unit){
  if(!REPORT_BASE)return '<button class="primary action" data-page="report">이 동의 진단 리포트 보기 ↗</button>';
  const url=REPORT_BASE+'?report_unit='+encodeURIComponent(unit)+'&return_gu='+encodeURIComponent(stats.gu)+'&return_layer='+encodeURIComponent(stats.layer);
- return '<a class="report-anchor action" href="'+safe(url)+'" target="_blank" rel="noopener noreferrer">이 동의 진단 리포트 보기 ↗</a>';
+ return '<a class="report-anchor action" href="'+safe(url)+'" target="_blank" rel="opener">이 동의 진단 리포트 보기 ↗</a>';
 }
+// Open reports from the user's actual click so supported browsers can close the report tab.
+// If a popup is blocked, leave the normal link as the fallback.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest?.('a.report-anchor');
+  if (!link || event.defaultPrevented || event.button !== 0 ||
+      event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  const tab = window.open(link.href, '_blank');
+  if (tab) event.preventDefault();
+}, true);
+
 const off=Object.fromEntries(DATA.officer.map(r=>[r.unit,r]));
 const founders=Object.fromEntries(DATA.founder.map(r=>[r.unit,r]));
 const support=Object.fromEntries(DATA.examples.map(r=>[r.unit,r]));
