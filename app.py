@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from data_access import read_files, load_geometry, map_features, bound_extent
+from report_pdf import make_report_pdf
 
 ROOT=Path(__file__).resolve().parent
 st.set_page_config(page_title='DAEGU FOOD BIZ · 대구 외식 상권',page_icon='◼',layout='wide',initial_sidebar_state='collapsed')
@@ -239,10 +240,17 @@ def show_report_page(unit: str):
     .dfb-report-paper h3:first-child{margin-top:0!important}
     .dfb-report-paper p{font-size:14px!important;line-height:1.8!important;
        color:#17191c!important;margin:0 0 9px!important;opacity:1!important}
-    .dfb-report-subtitle{font-size:14px;color:#15171b!important;font-weight:800;
-        letter-spacing:-.02em;padding:3px 0 11px}
-    .dfb-report-section-title{font-size:16px!important;line-height:1.4!important;
-       font-weight:800!important;letter-spacing:-.025em;margin:14px 0 4px!important}
+    .dfb-report-section-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+       font-size:19px!important;line-height:1.5!important;
+       font-weight:850!important;letter-spacing:-.025em;margin:20px 0 10px!important;
+       padding:0!important;color:#17191c!important}
+    .dfb-report-mode{font-size:13px!important;color:#666f79!important;
+       font-weight:650!important;letter-spacing:-.01em}
+    /* Prevent native Streamlit blocks from inserting oversized gaps between
+       the report title, its body, and the action row. */
+    [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"]{
+       gap:.5rem!important}
+    .dfb-report-paper{margin-top:0!important}
     .dfb-close-tab{box-sizing:border-box;display:flex;justify-content:center;align-items:center;
        width:100%;min-height:45px;white-space:nowrap;background:#17181b!important;
        color:#fff!important;-webkit-text-fill-color:#fff!important;
@@ -296,7 +304,6 @@ def show_report_page(unit: str):
         '<div class="dfb-report-top"><span class="dfb-report-kicker">DAEGU FOOD BIZ · 동별 진단 리포트</span>'
         '<span class="dfb-report-date">분석 기준 · 2025년 말</span></div>'
         f'<div class="dfb-report-title">{safe_unit}</div>'
-        '<div class="dfb-report-deck">외식 상권 진단 결과</div>'
         f'<div class="dfb-report-tags"><span class="dfb-report-chip {style}">병목 유형 · {safe_type}</span>'
         f'<span class="dfb-report-chip"><span class="chip-label">모델 확신도</span> {safe_conf}</span></div>'
         '<div class="dfb-report-brief"><strong>비교 대상</strong> 대구 정체 동 65곳'
@@ -311,15 +318,14 @@ def show_report_page(unit: str):
         mode='draft'
         report_modes[unit]='draft'
 
-    st.markdown('<div class="dfb-report-section-title">분석 보고서</div>',unsafe_allow_html=True)
+    report_kind = 'AI 생성' if mode=='ai' and generated else '기본 초안'
+    st.markdown(f'<div class="dfb-report-section-title">분석 보고서 <span class="dfb-report-mode">({report_kind})</span></div>',unsafe_allow_html=True)
     if mode=='ai' and generated:
-        st.markdown('<div class="dfb-report-subtitle">Gemini AI 작성 보고서</div>',unsafe_allow_html=True)
         # Native markdown for LLM-generated headings/lists, with explicit high
         # contrast styles defined above. Never send this text as pale st.text().
         with st.container(border=True):
             st.markdown(generated)
     else:
-        st.markdown('<div class="dfb-report-subtitle">데이터 기반 기본 보고서</div>',unsafe_allow_html=True)
         st.markdown(_draft_html(base),unsafe_allow_html=True)
 
     # Must remain outside the AI-generated document so the LLM cannot omit it.
@@ -357,9 +363,21 @@ def show_report_page(unit: str):
         text_to_save=(generated if mode=='ai' and generated else base)
         if d['diagnosis']['bottleneck']=='진입 병목':
             text_to_save+='\n\n필수 현장 조사: '+_field_survey('진입 병목')
-        st.download_button('보고서 다운로드',data=text_to_save,
-            file_name=f'daegu_food_biz_{unit.replace(" ","_")}_report.txt',
-            mime='text/plain;charset=utf-8',use_container_width=True)
+        try:
+            pdf_data = make_report_pdf(
+                unit=unit, report_text=text_to_save, mode=report_kind,
+                bottleneck=str(d['diagnosis']['bottleneck']),
+                confidence=str(d['diagnosis']['confidence']),
+                as_of=str(d['as_of']),
+                survey_note=_field_survey(str(d['diagnosis']['bottleneck'])),
+            )
+            st.download_button('PDF 다운로드', data=pdf_data,
+                file_name=f'daegu_food_biz_{unit.replace(" ", "_")}_report.pdf',
+                mime='application/pdf', use_container_width=True,
+                key=f'pdf_{unit}_{mode}')
+        except Exception as exc:
+            st.error('PDF 생성에 실패했습니다. 설치된 PDF 라이브러리와 한글 글꼴을 확인해 주세요.')
+    st.caption('다운로드한 PDF를 열어 ⌘P(Windows: Ctrl+P)로 인쇄할 수 있습니다.')
 
     if not key:
         st.info('무료 Gemini API 키가 아직 등록되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록하면 AI 보고서를 생성할 수 있습니다.')
