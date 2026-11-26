@@ -1,0 +1,2 @@
+Streamlit 팀 GitHub 저장소 최상위 폴더의 preview_quick_open.html 1개만 이 파일로 교체하세요.
+app.py, data_access.py, report_pdf.py, requirements.txt, geo/, data/, Secrets 변경 불필요.
