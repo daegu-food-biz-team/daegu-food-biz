@@ -29,9 +29,71 @@ def file_signature():
     paths=[ROOT/'data/officer_dongs.csv',ROOT/'data/founder_cafe.csv',ROOT/'data/unit_hjd_map.csv',ROOT/'geo/daegu_hjd_ver20261001.geojson',ROOT/'geo/daegu_boundary_web.geojson',ROOT/'llm/report_input_example.json',ROOT/'preview_quick_open.html']
     return tuple((str(p.relative_to(ROOT)),p.stat().st_size,p.stat().st_mtime_ns) for p in paths)
 
+def _update_legend_in_streamlit_html(html: str) -> str:
+    """Apply the compact officer map legend while leaving all other UI intact.
+
+    This runs on the existing HTML template loaded by the Streamlit app, so only
+    app.py needs to be uploaded to GitHub. Founder legend and map/LLM handlers
+    are unchanged.
+    """
+    markers = (
+        '  return `<section class="legend-compact" aria-label="동별 병목 지도 색상 범례">',
+        '  return `<section class="legend-compact" aria-label="동별 병목 진단 지도 색상 범례">',
+    )
+    start = next((html.find(x) for x in markers if html.find(x) >= 0), -1)
+    if start < 0:
+        return html  # Keep the app operable if an unrelated template is deployed.
+    end_marker = '  </section>`;'
+    end_start = html.find(end_marker, start)
+    if end_start < 0:
+        return html
+    end = end_start + len(end_marker)
+    new_legend = r'''  return `<section class="legend-compact" aria-label="동별 병목 지도 색상 범례">
+    <div class="legend-heading"><strong>색상 기준</strong></div>
+    <div class="dfb-legend-top-row">
+      <div class="dfb-legend-entry-line legend-palette"><span class="palette-label palette-entry">진입 병목</span>${['높음','보통','낮음'].map(c=>`<span><i class="swatch" style="background:${confColors['진입 병목'][c]}"></i>${c}</span>`).join('')}</div>
+      <div class="dfb-legend-gray-line">
+        <strong>회색 지역</strong>
+        <span><i class="swatch" style="background:#C4CDD8"></i>정체 동 아님 / 자료 미제공</span>
+        <span><i class="swatch" style="background:#A7B0BB"></i>읍·면 (병목 진단 범위 밖)</span>
+      </div>
+    </div>
+    <div class="dfb-legend-survival-line legend-palette"><span class="palette-label palette-survival">생존 병목</span>${['높음','보통','낮음'].map(c=>`<span><i class="swatch" style="background:${confColors['생존 병목'][c]}"></i>${c}</span>`).join('')}</div>
+    <div class="legend-description-group">
+      <div class="legend-description-line"><strong>진입 병목</strong><span>기존 점포 생존에 비해 신규 진입이 상대적으로 적은 유형</span></div>
+      <div class="legend-description-line"><strong>생존 병목</strong><span>신규 진입에 비해 점포 생존 안정성이 상대적으로 취약한 유형</span></div>
+    </div>
+    <div class="legend-confidence"><strong>색 진하기</strong> · 모델 확신도(과거 적중률 기준), 개별 동의 성공 확률은 아닙니다.</div>
+  </section>`;'''
+    html = html[:start] + new_legend + html[end:]
+    css = r'''
+<style id="dfb-officer-legend-singlefile">
+  /* Horizontal grey legend, next to the entry bottleneck; no redundant labels. */
+  .dfb-legend-top-row{display:flex;align-items:center;gap:clamp(20px,2vw,34px);flex-wrap:nowrap;margin:0 0 11px}
+  .dfb-legend-entry-line{display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:10px 13px!important;flex-wrap:nowrap!important}
+  .dfb-legend-entry-line>span{white-space:nowrap!important}
+  .dfb-legend-gray-line{display:flex;align-items:center;flex:0 0 auto;gap:12px;white-space:nowrap;font-size:11px!important;color:#4a515a;font-weight:650;line-height:1.5}
+  .dfb-legend-gray-line strong{border-left:3px solid #929bab;padding-left:9px;white-space:nowrap;color:#222832;font-size:12px!important;font-weight:850!important}
+  .dfb-legend-gray-line>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .dfb-legend-gray-line .swatch{margin-right:0!important;flex:none}
+  .dfb-legend-survival-line{display:flex!important;align-items:center!important;gap:10px 13px!important;flex-wrap:nowrap!important}
+  .dfb-legend-survival-line>span{white-space:nowrap!important}
+  .legend-compact .dfb-legend-top-row + .dfb-legend-survival-line{margin-top:0!important}
+  @media(max-width:1200px){
+    .dfb-legend-top-row{flex-wrap:wrap;gap:10px 24px}
+    .dfb-legend-gray-line{padding-left:105px;max-width:100%;overflow-x:auto;scrollbar-width:thin}
+  }
+  @media(max-width:640px){
+    .dfb-legend-gray-line{padding-left:0;gap:8px;max-width:100%}
+    .dfb-legend-entry-line,.dfb-legend-survival-line{flex-wrap:wrap!important}
+  }
+</style>'''
+    return html.replace('</head>', css + '</head>', 1)
+
 @st.cache_data(show_spinner=False)
 def html_from_sources(signature):
     html=(ROOT/'preview_quick_open.html').read_text(encoding='utf-8')
+    html=_update_legend_in_streamlit_html(html)
     officer,founder,mapping=read_files()
     geometry,mode=load_geometry()
     geo,stats=map_features(officer,founder,mapping,geometry,mode)

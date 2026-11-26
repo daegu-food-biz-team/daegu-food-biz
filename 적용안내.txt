@@ -1,0 +1,2 @@
+GitHub > daegu-food-biz-team/daegu-food-biz > app.py 파일을 이 파일로 교체한 뒤 Commit changes를 누르세요.
+기존 preview_quick_open.html, report_pdf.py, 데이터, Gemini Secrets는 수정하지 마세요.
