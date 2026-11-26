@@ -90,13 +90,61 @@ def _update_legend_in_streamlit_html(html: str) -> str:
 </style>'''
     return html.replace('</head>', css + '</head>', 1)
 
+
+def _fix_missing_map_regions(html: str) -> str:
+    # Render legal-dong polygons even when analysis data is absent.
+    replacements = [
+        (
+            "let opts=units.filter(u=>stats.gu==='대구 전체'||off[u].gu===stats.gu);",
+            "let opts=[...new Set(DATA.geo.features.map(ft=>ft.properties.UNIT).filter(Boolean))].filter(u=>stats.gu==='대구 전체'||u.startsWith(stats.gu+' ')).sort((a,b)=>a.localeCompare(b,'ko'));",
+        ),
+        (
+            "function officerPanel(){const r=off[stats.unit],is=r.diagnosis_scope.startsWith('진단');",
+            "function officerPanel(){const r=off[stats.unit];if(!r)return missingUnitPanel(stats.unit);const is=r.diagnosis_scope.startsWith('진단');",
+        ),
+        (
+            "function cafePanel(){const r=founders[stats.unit];if(!r)return '<div class=\"note\">자료 미제공</div>';",
+            "function cafePanel(){const r=founders[stats.unit];if(!r)return missingUnitPanel(stats.unit);",
+        ),
+        (
+            "function chooseUnit(u){\n if(!off[u])return;",
+            "function chooseUnit(u){\n if(!u)return;",
+        ),
+        (
+            "if(p&&p.UNIT&&off[p.UNIT]){chooseUnit(p.UNIT);}",
+            "if(p&&p.UNIT){chooseUnit(p.UNIT);}",
+        ),
+    ]
+    for old, new in replacements:
+        if html.count(old)!=1:
+            raise ValueError('지도 연결 패치 대상이 예상과 다릅니다: '+old[:70])
+        html=html.replace(old,new,1)
+    extra = '''function missingUnitPanel(u){
+ const pos=u.indexOf(' '),gu=pos>=0?u.slice(0,pos):'',dong=pos>=0?u.slice(pos+1):u;
+ return `<div class="map-title">지역 분석</div><div class="detail-panel"><div class="detail-overline">${safe(gu)}</div><div class="detail-title">${safe(dong)}</div><div class="warning" style="margin-top:18px">분석 자료 없음</div><div class="body-note" style="margin-top:10px;line-height:1.7">지도 경계는 제공되지만 이 지역은 현재 외식 점포 분석 CSV에 포함되지 않았습니다. 병목 진단·점포 현황을 표시하지 않습니다.</div></div>`;
+}
+'''
+    anchor='function officerPanel(){'
+    if html.count(anchor)!=1:
+        raise ValueError('지역 분석 패널을 찾지 못했습니다.')
+    return html.replace(anchor,extra+anchor,1)
+
 @st.cache_data(show_spinner=False)
 def html_from_sources(signature):
     html=(ROOT/'preview_quick_open.html').read_text(encoding='utf-8')
-    html=_update_legend_in_streamlit_html(html)
+    html=_fix_missing_map_regions(_update_legend_in_streamlit_html(html))
     officer,founder,mapping=read_files()
     geometry,mode=load_geometry()
     geo,stats=map_features(officer,founder,mapping,geometry,mode)
+    # Preserve the real legal-dong unit even for 68 locations without analysis
+    # results. This is display metadata only; no predictions are fabricated.
+    if mode=='legal':
+        for mapped_ft, raw_ft in zip(geo['features'],geometry['features']):
+            raw_unit=str((raw_ft.get('properties') or {}).get('unit') or '').strip()
+            if raw_unit and not mapped_ft['properties'].get('UNIT'):
+                mapped_ft['properties']['UNIT']=raw_unit
+                mapped_ft['properties']['PHYSICAL_NAME']=raw_unit
+                mapped_ft['properties']['NO_OFFICER_DATA']=True
     def rows(df):
         return [{k:(None if pd.isna(v) else v.item() if hasattr(v,'item') else v) for k,v in d.items()} for d in df.to_dict('records')]
     payload={'officer':rows(officer),'founder':rows(founder),'geo':geo,'bounds':bound_extent(geo),'stats':stats,'examples':json.loads((ROOT/'llm/report_input_example.json').read_text('utf-8')),'geomMode':mode}
