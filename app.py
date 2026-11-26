@@ -129,10 +129,40 @@ def _fix_missing_map_regions(html: str) -> str:
         raise ValueError('지역 분석 패널을 찾지 못했습니다.')
     return html.replace(anchor,extra+anchor,1)
 
+def _add_status_missing_data_legend(html: str) -> str:
+    """Show the actual missing-analysis polygon color in the status-map legend.
+
+    This is a presentation-only modification to the HTML rendered inside the
+    existing Streamlit app. The other maps, data, and reporting are unchanged.
+    """
+    # The template's status branch renders five growth-rate bins. Add only the
+    # missing-analysis key (used when there is a polygon but no officer CSV row).
+    key = "if(stats.layer==='status')return `<section"
+    begin = html.find(key)
+    if begin < 0:
+        raise ValueError('점포 증감률 지도 범례를 찾을 수 없습니다.')
+    end = html.find('  </section>`;', begin)
+    if end < 0:
+        raise ValueError('점포 증감률 지도 범례 끝을 찾을 수 없습니다.')
+    legend = html[begin:end]
+    tag = '</div>'
+    # Last closing div before section end closes the existing legend-palette.
+    place = legend.rfind(tag)
+    if place < 0 or 'legend-palette' not in legend:
+        raise ValueError('점포 증감률 색인 구조가 예상과 다릅니다.')
+    add = ('\n    <div class="legend-meta-row" style="margin-top:9px">'
+           '<span><i class="swatch" style="background:#C4CDD8"></i>'
+           '<strong>분석 미제공</strong></span></div>')
+    if '분석 미제공</strong>' in legend:
+        return html  # idempotent
+    return html[:begin + place + len(tag)] + add + html[begin + place + len(tag):]
+
+
 @st.cache_data(show_spinner=False)
 def html_from_sources(signature):
     html=(ROOT/'preview_quick_open.html').read_text(encoding='utf-8')
     html=_fix_missing_map_regions(_update_legend_in_streamlit_html(html))
+    html=_add_status_missing_data_legend(html)
     # Founder-only: separate 'no data' grey from the 63–69% survival band.
     # Update both the actual polygon fill and its legend swatch.
     html=html.replace(

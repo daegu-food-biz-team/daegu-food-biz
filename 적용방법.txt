@@ -1,2 +1,3 @@
-Streamlit 팀 GitHub 저장소 최상위 폴더의 preview_quick_open.html 1개만 이 파일로 교체하세요.
-app.py, data_access.py, report_pdf.py, requirements.txt, geo/, data/, Secrets 변경 불필요.
+GitHub의 daegu-food-biz-team/daegu-food-biz 저장소 최상위 app.py 파일만 교체 후 Commit changes.
+기존 preview_quick_open.html, GeoJSON, CSV, report_pdf.py와 Streamlit Secrets는 변경하지 않습니다.
+수정: 담당자용 > 점포 증감 현황 지도에서 색상 구간 아래에 회색(분석 미제공) 범례 추가.
