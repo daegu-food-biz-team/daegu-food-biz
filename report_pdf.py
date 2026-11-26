@@ -80,8 +80,8 @@ def make_report_pdf(*, unit: str, report_text: str, mode: str, bottleneck: str,
     story = [
         Paragraph('DAEGU FOOD BIZ  /  동별 외식 상권 진단', ss['kicker']),
         Paragraph(html.escape(unit), ss['title']),
-        Paragraph(f'분석 보고서 ({html.escape(mode)})  ·  기준 {html.escape(as_of)}', ss['meta']),
-        Paragraph(f'병목 유형  {html.escape(bottleneck)}   |   모델 확신도  {html.escape(confidence)}', ss['status']),
+        Paragraph(f'분석 보고서 ({html.escape(mode)}) · 기준 {html.escape(as_of)}', ss['meta']),
+        Paragraph(f'{html.escape(bottleneck)}  |  모델 확신도 {html.escape(confidence)}', ss['status']),
         HRFlowable(width='100%', thickness=0.6, color=colors.HexColor('#D5DAE0'), spaceAfter=12),
         Paragraph('대구 정체 동 65곳과 비교한 상대적 진단입니다. 개별 점포의 성공 확률이나 정책 효과를 뜻하지 않습니다.', ss['small'])
     ]

@@ -212,23 +212,25 @@ def show_report_page(unit: str):
       max-width:980px!important;margin:0 auto!important;padding:22px 26px 26px!important;
     }
     .dfb-report-rule{border-top:2px solid #202125;margin:0 0 16px}
-    .dfb-report-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .dfb-report-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
     .dfb-report-kicker{font-size:11px;font-weight:800;letter-spacing:.13em;color:#5f6670!important}
     .dfb-report-date{font-size:12px;color:#636a75!important;font-weight:600}
-    .dfb-report-title{font-size:clamp(30px,3vw,38px)!important;line-height:1.3!important;font-weight:850!important;
-      letter-spacing:-.055em!important;margin:11px 0 5px!important;color:#111214!important}
-    .dfb-report-deck{font-size:15px!important;font-weight:700!important;color:#464d57!important;margin:0 0 14px!important}
-    .dfb-report-tags{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:3px 0 13px}
-    .dfb-report-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;
-      font-size:13px!important;font-weight:750!important;border:1px solid #d9dfe5;background:#fff;color:#29313a!important}
-    .dfb-report-chip.survival{background:#fff4e9!important;color:#8e4310!important;border-color:#ebceb5}
-    .dfb-report-chip.entry{background:#ecf3ff!important;color:#214f9b!important;border-color:#c8d7f1}
-    .dfb-report-chip .chip-label{font-weight:600;color:#5a6270!important;font-size:12px!important}
+    .dfb-report-title{font-size:clamp(30px,3vw,38px)!important;line-height:1.2!important;font-weight:850!important;
+      letter-spacing:-.055em!important;margin:10px 0 8px!important;color:#111214!important}
+    .dfb-report-status-badge{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:12px;
+      background:#f3f0ee;color:#454b55!important;font-size:13px!important;font-weight:800!important;white-space:nowrap}
+    .dfb-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:14px 0 18px}
+    .dfb-summary-card{border:1px solid #e1e4e8;background:#f7f5f3;padding:18px 18px 16px;border-radius:18px}
+    .dfb-summary-card.entry{background:#eef4ff;border-color:#d7e2f6}
+    .dfb-summary-card.survival{background:#fff1e6;border-color:#efd4bf}
+    .dfb-summary-label{font-size:13px!important;font-weight:800!important;color:#5f6670!important;margin-bottom:8px}
+    .dfb-summary-value{font-size:20px!important;line-height:1.3!important;font-weight:850!important;color:#111214!important;letter-spacing:-.03em}
+    .dfb-summary-note{font-size:13px!important;color:#555d67!important;line-height:1.55!important;margin-top:6px}
     .dfb-report-brief{border-top:1px solid #e1e4e8;border-bottom:1px solid #e1e4e8;
-      padding:10px 0;margin:0 0 13px;font-size:12px!important;line-height:1.65!important;color:#626b76!important}
+      padding:10px 0;margin:0 0 14px;font-size:12px!important;line-height:1.65!important;color:#626b76!important}
     .dfb-report-brief strong{color:#242830!important;font-weight:800!important}
     .dfb-report-brief .sep{margin:0 10px;color:#c4c8cf!important}
-    @media(max-width:650px){.dfb-report-title{font-size:30px!important}.dfb-report-brief .sep{display:none}
+    @media(max-width:760px){.dfb-summary-grid{grid-template-columns:1fr}.dfb-report-title{font-size:30px!important}.dfb-report-brief .sep{display:none}
       .dfb-report-brief strong{display:inline-block;margin-right:6px}}
 
     .dfb-report-paper{
@@ -240,7 +242,7 @@ def show_report_page(unit: str):
     .dfb-report-paper h3:first-child{margin-top:0!important}
     .dfb-report-paper p{font-size:14px!important;line-height:1.8!important;
        color:#17191c!important;margin:0 0 9px!important;opacity:1!important}
-    .dfb-report-section-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+    .dfb-report-section-title{display:block;
        font-size:19px!important;line-height:1.5!important;
        font-weight:850!important;letter-spacing:-.025em;margin:20px 0 10px!important;
        padding:0!important;color:#17191c!important}
@@ -299,26 +301,33 @@ def show_report_page(unit: str):
     safe_type=escape(str(d['diagnosis']['bottleneck']))
     safe_conf=escape(str(d['diagnosis']['confidence']))
     style='survival' if d['diagnosis']['bottleneck']=='생존 병목' else 'entry'
-    st.markdown(
-        '<div class="dfb-report-rule"></div>'
-        '<div class="dfb-report-top"><span class="dfb-report-kicker">DAEGU FOOD BIZ · 동별 진단 리포트</span>'
-        '<span class="dfb-report-date">분석 기준 · 2025년 말</span></div>'
-        f'<div class="dfb-report-title">{safe_unit}</div>'
-        f'<div class="dfb-report-tags"><span class="dfb-report-chip {style}">병목 유형 · {safe_type}</span>'
-        f'<span class="dfb-report-chip"><span class="chip-label">모델 확신도</span> {safe_conf}</span></div>'
-        '<div class="dfb-report-brief"><strong>비교 대상</strong> 대구 정체 동 65곳'
-        '<span class="sep">|</span><strong>해석 기준</strong> 상대적 병목 진단 · 개별 점포 성공 확률 아님</div>',
-        unsafe_allow_html=True,
-    )
-    base=_grounded_draft(d)
+    simple_compare = '일치' if d['diagnosis'].get('rule_agree') else '추가 확인 필요'
+    simple_note = '단순 폐업률 기준 판정과 같은 방향' if d['diagnosis'].get('rule_agree') else '단순 폐업률 기준과 달라 현장 확인 필요'
+    accuracy_note = f"과거 같은 구간 적중률 {int(round(float(d['diagnosis']['past_accuracy'])*100))}%"
+    status_note = '들어오는 힘보다 버티는 힘이 약함' if d['diagnosis']['bottleneck']=='생존 병목' else '기존 점포 생존에 비해 신규 진입이 적음'
     generated=st.session_state.get('dfb_generated',{}).get(unit)
     report_modes=st.session_state.setdefault('dfb_report_modes',{})
     mode=report_modes.get(unit,'ai' if generated else 'draft')
     if mode=='ai' and not generated:
         mode='draft'
         report_modes[unit]='draft'
-
     report_kind = 'AI 생성' if mode=='ai' and generated else '기본 초안'
+    st.markdown(
+        '<div class="dfb-report-rule"></div>'
+        '<div class="dfb-report-top"><div><span class="dfb-report-kicker">DAEGU FOOD BIZ · 동별 진단 리포트</span>'
+        f'<div class="dfb-report-title">{safe_unit}</div></div>'
+        f'<span class="dfb-report-status-badge">{report_kind} · 검토 필요</span></div>'
+        '<div class="dfb-report-brief"><strong>분석 기준</strong> 2025년 말'
+        '<span class="sep">|</span><strong>비교 대상</strong> 대구 정체 동 65곳'
+        '<span class="sep">|</span><strong>해석 기준</strong> 상대적 병목 진단 · 개별 점포 성공 확률 아님</div>'
+        '<div class="dfb-summary-grid">'
+        f'<div class="dfb-summary-card {style}"><div class="dfb-summary-label">진단</div><div class="dfb-summary-value">{safe_type}</div><div class="dfb-summary-note">{status_note}</div></div>'
+        f'<div class="dfb-summary-card"><div class="dfb-summary-label">모델 확신도</div><div class="dfb-summary-value">{safe_conf}</div><div class="dfb-summary-note">{accuracy_note}</div></div>'
+        f'<div class="dfb-summary-card"><div class="dfb-summary-label">단순 지표와 비교</div><div class="dfb-summary-value">{simple_compare}</div><div class="dfb-summary-note">{simple_note}</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    base=_grounded_draft(d)
     st.markdown(f'<div class="dfb-report-section-title">분석 보고서 <span class="dfb-report-mode">({report_kind})</span></div>',unsafe_allow_html=True)
     if mode=='ai' and generated:
         # Native markdown for LLM-generated headings/lists, with explicit high
