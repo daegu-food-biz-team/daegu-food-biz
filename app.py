@@ -529,6 +529,96 @@ def _draft_html(base: str) -> str:
     return '<section class="dfb-report-paper">'+''.join(chunks)+'</section>'
 
 
+
+def _draft_report_html(d) -> str:
+    """Render the source-only first draft in the same visual system as AI reports.
+
+    All observations and factors come from officer CSV / supplied report examples;
+    no missing policy names or model outcomes are invented for the draft.
+    """
+    def e(value):
+        return escape(str(value if value is not None else '자료 없음'), quote=True)
+
+    g=d['diagnosis']
+    s=d['status']
+    kind=str(g['bottleneck'])
+    if kind=='진입 병목':
+        meaning='기존 점포의 생존에 비해 신규 진입이 상대적으로 적은 유형입니다.'
+    else:
+        meaning='신규 진입에 비해 점포 생존 안정성이 상대적으로 취약한 유형입니다.'
+    accuracy=_pct(g.get('past_accuracy'))
+    consistency='일치' if g.get('rule_agree') else '불일치 · 현장 확인 우선'
+
+    def section(index, title, contents, extra=''):
+        return (f'<section class="dfb-ai-section {extra}">'
+                f'<div class="dfb-ai-sec-head"><span>{index}</span><h3>{e(title)}</h3></div>'
+                f'<div class="dfb-ai-sec-body">{contents}</div></section>')
+
+    def lines(items):
+        if not items:
+            return '<p class="dfb-ai-muted">제공된 분석 자료가 없습니다.</p>'
+        return '<ul class="dfb-ai-list">'+''.join(f'<li>{e(x)}</li>' for x in items)+'</ul>'
+
+    overview=(f'<div class="dfb-ai-summary-tag">진단 요약 · 2025년 말</div>'
+              f'<p class="dfb-ai-summary-text">{e(d["unit"])}은(는) '
+              f'<strong>{e(kind)}</strong>으로 진단됐습니다. {e(meaning)}</p>'
+              f'<p class="dfb-ai-summary-sub">대구 정체 동 65곳과 비교한 상대 평가입니다. '
+              f'병목 분류 확신도는 {e(g.get("confidence"))} '
+              f'(과거 같은 확신도 구간 적중률 {e(accuracy)})이며, '
+              f'단순 지표와 모델 판정은 <strong>{e(consistency)}</strong>입니다. '
+              '이 수치는 해당 지역의 미래 발생 확률이 아닙니다.</p>')
+
+    metric_cards=''.join(
+        '<div class="dfb-ai-metric">'
+        f'<div class="dfb-ai-metric-label">{e(label)}</div>'
+        f'<div class="dfb-ai-metric-value">{e(value)}</div>'
+        f'<div class="dfb-ai-metric-note">{e(note)}</div></div>'
+        for label,value,note in _report_metric_cells(d)
+    )
+
+    factors=list(d.get('top_factors') or [])
+    factor_html=(lines(factors) +
+                 '<p class="dfb-draft-caption">주요 요인은 모델 입력자료의 상대적 특성입니다. '
+                 '요인만으로 원인이나 정책 효과를 단정할 수 없습니다.</p>')
+
+    supplied_types=list(d.get('policy_types') or [])
+    if supplied_types:
+        support=(lines(supplied_types)
+                 +'<p class="dfb-draft-caption">팀 제공 검토 유형으로, 실제 시행 사업으로 확정된 목록은 아닙니다. '
+                 '사업명과 지원 대상은 검증된 지원사업 DB 연계 후 확인해야 합니다.</p>')
+    else:
+        support=('<p class="dfb-draft-empty">검증된 지원 유형 자료 미제공</p>'
+                 '<p class="dfb-draft-caption">현장 조사 후 실제 지원사업 DB와 대조하여 검토합니다. '
+                 '사업명·지원 자격은 아직 표시하지 않습니다.</p>')
+
+    checks=list(d.get('check_on_site') or [])
+    if not checks:
+        checks=(['실제 공실 및 신규 입점 가능 공간 확인',
+                 '임대료·업종 구성과 지역 수요 조사',
+                 '낮은 신규 진입이 안정적인 상권 때문인지 진입 장애 때문인지 구분']
+                if kind=='진입 병목'
+                else ['초기 영업 점포의 폐업 사유 확인',
+                      '업종 집중·경쟁 및 임대료 등 비용 조건 확인',
+                      '주민·방문객 수요와 현장 이용 흐름 확인'])
+    check_html=lines(checks)
+
+    limitation=('인허가 기록 및 인구 관련 변수에 기반한 과거 자료의 상대적 진단입니다. '
+                '매출, 개별 점포 성공, 정책 효과 또는 지원 우선순위를 예측하지 않습니다. '
+                '과거 병목 분류 적중률은 단순 폐업률 규칙보다 우수함을 보장하지 않습니다.')
+    return (
+        '<article class="dfb-ai-report dfb-draft-report">'
+        f'<div class="dfb-ai-summary">{overview}</div>'
+        + section('01','지역 현황', '<div class="dfb-ai-metrics">'+metric_cards+'</div>')
+        + section('02','진단에 작용한 주요 요인',factor_html)
+        + '<div class="dfb-ai-side-grid">'
+        + section('03','정책 검토',support,'dfb-ai-side')
+        + section('04','현장 조사',check_html,'dfb-ai-side')
+        + '</div>'
+        + section('05','해석상 한계',f'<p>{e(limitation)}</p>','dfb-ai-limits')
+        + '</article>'
+    )
+
+
 def show_report_page(unit: str):
     d=_input_for_report(unit)
     if d is None:
@@ -589,6 +679,14 @@ def show_report_page(unit: str):
     /* Structured Gemini report: neutral municipal tone, distinct sections, responsive. */
     .dfb-ai-report{font-family:inherit;color:#17202b!important;background:#fff;border:1px solid #e0e3e6;
       border-radius:13px;overflow:hidden;margin:0 0 8px}
+    .dfb-draft-report .dfb-ai-summary{background:linear-gradient(105deg,#f5f7fa,#fff 85%);
+      border-left-color:#6d819e}
+    .dfb-draft-report .dfb-ai-summary-tag{color:#4e647e!important}
+    .dfb-draft-report .dfb-ai-summary-text strong{color:#213c63!important}
+    .dfb-draft-caption{color:#6a7480!important;font-size:12px!important;
+      line-height:1.65!important;margin:12px 0 0!important}
+    .dfb-draft-empty{color:#404b5b!important;font-size:14px!important;font-weight:800!important;
+      margin:0 0 8px!important}
     .dfb-ai-summary{padding:24px 27px 22px;background:linear-gradient(105deg,#fbf8f5,#fff 80%);
       border-bottom:1px solid #e6e1da;border-left:4px solid #b95b1d}
     .dfb-ai-summary-tag{font-size:12px!important;font-weight:850;color:#9a4f1e!important;letter-spacing:.02em;margin-bottom:10px}
@@ -719,7 +817,7 @@ def show_report_page(unit: str):
         # Render a consistent report design. Escape all model text before adding HTML.
         st.markdown(_ai_report_html(generated,d),unsafe_allow_html=True)
     else:
-        st.markdown(_draft_html(base),unsafe_allow_html=True)
+        st.markdown(_draft_report_html(d),unsafe_allow_html=True)
 
     # Must remain outside the AI-generated document so the LLM cannot omit it.
     if d['diagnosis']['bottleneck']=='진입 병목':
@@ -770,7 +868,6 @@ def show_report_page(unit: str):
                 key=f'pdf_{unit}_{mode}')
         except Exception as exc:
             st.error('PDF 생성에 실패했습니다. 설치된 PDF 라이브러리와 한글 글꼴을 확인해 주세요.')
-    st.caption('다운로드한 PDF를 열어 ⌘P(Windows: Ctrl+P)로 인쇄할 수 있습니다.')
 
     if not key:
         st.info('무료 Gemini API 키가 아직 등록되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록하면 AI 보고서를 생성할 수 있습니다.')
