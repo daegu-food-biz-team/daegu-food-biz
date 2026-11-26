@@ -5,6 +5,7 @@ inputs refresh when files change. PostgreSQL/LLM are not yet connected.
 from __future__ import annotations
 import json
 import os
+import re
 from urllib.parse import urlsplit, urlunsplit, urlencode
 import requests
 from html import escape
@@ -281,14 +282,198 @@ def _grounded_draft(d):
     ])
 
 def _prompt(d):
+    """Ask for an evidence-linked *specific* report, without unverified policies."""
     rules=(ROOT/'llm/report_rules.md').read_text(encoding='utf-8')
-    return ("너는 지방자치단체 담당자를 위해 근거 중심의 외식 점포 생태계 진단 보고서를 작성한다.\n"
-            "아래 규칙을 충실히 따르고 약 900~1300자 한국어 보고서를 작성하라. 제공되지 않은 사업명, 원인, 수치를 만들어내지 마라.\n"
-            "과거 적중률은 개별 지역의 미래 확률이 아니다. 정책은 가능성·검토 대상으로만 기술한다.\n"
-            "모델이 4칸 예측을 하지 않으며 병목 유형 과거 적중률 약 70%는 단순 폐업률 규칙 수준임을 솔직하게 명시한다.\n"
-            "특히 진입 병목이라면 안정적 상권인지 침체 지역인지 결정할 수 없으므로, 지원사업 유무와 관계없이 현장 조사가 반드시 필요하다고 명시한다.\n"
-            "지원사업 목록은 비어 있으므로 실제 사업명을 작성하지 않는다.\n\n"
-            f"팀 보고서 작성 규칙:\n{rules}\n\n검증된 입력 JSON:\n{json.dumps(d,ensure_ascii=False,default=str)}")
+    # Send explicit display units so the LLM does not mistake ratios for store counts.
+    metrics=[{'지표':name,'검증값':value,'설명':note}
+             for name,value,note in _report_metric_cells(d)]
+    return (
+        "너는 대구광역시 외식 상권 담당자의 의사결정을 돕는 데이터 분석가다. "
+        "기존 보고서처럼 형식만 갖춘 짧은 요약은 불합격이다. 지역의 검증된 숫자와 요인을 반드시 연결하여, "
+        "현장 조사 설계까지 가능한 구체적인 실무 분석을 작성하라. "
+        "하지만 입력에 없는 지역 특성이나 인과관계를 추측해 사실처럼 쓰는 것도 불합격이다.\n\n"
+        "[반환 형식] 한국어 자연어로 된 JSON 객체 1개만 반환. 마크다운·HTML·코드블록·글머리표·외부 설명 금지. "
+        "키 이름은 그대로 유지하고, 아래 문자열/배열을 모두 포함한다.\n"
+        '{"summary":"핵심 진단 3~4문장",'
+        '"interpretation":"숫자와 원인을 연결한 해석 4~6문장",'
+        '"factors":["요인별 근거와 의미를 담은 구체적 문장 1","문장 2","문장 3"],'
+        '"support_directions":["확인 조건·근거·검토 목적이 있는 조건부 방향"],'
+        '"onsite_checks":["확인 질문 + 확인 방법/자료 + 판별 목적"],'
+        '"decision_paths":["현장에서 A가 확인되면 → 다음에 검토할 사항", "B가 확인되면 → 다른 검토 사항"],'
+        '"limitations":"해석상 한계 2~3문장"}\n\n'
+        "[지역별 구체성: 필수 품질 기준]\n"
+        "1) summary(약 140~230자): 대상 동, 병목 유형, 비교 기준(대구 정체 동 65곳), "
+        "검증된 현황 수치 2개 이상을 포함해 *이 지역에서 무엇이 동시에 나타났는지* 설명한다. "
+        "확신도가 과거 동일 구간 적중률임을 구분하고 미래 확률처럼 해석하지 않는다.\n"
+        "2) interpretation(약 250~430자): 최근 3년 점포 증감률, 개업/폐업 건수 대비 비율, 인구 변화 가운데 "
+        "입력에 있는 2~4개를 연결한다. 예를 들어 점포 감소와 개·폐업 비율의 관계 또는 인구와 점포 흐름의 방향이 "
+        "같은지 다른지를 숫자로 비교한다. 이것은 과거 관측 결과이며 매출·원인을 직접 측정한 값이 아니다. "
+        "'따라서 ~일 가능성을 점검해야 한다'처럼 근거→해석→남은 불확실성 순서로 쓴다. "
+        "top_factors와 상반되는 징후가 있으면 감추지 말고 밝힌다.\n"
+        "3) factors: 실제 top_factors의 각 항목을 가능한 한 하나씩 짚어 3개 문장(각 약 80~140자)을 쓴다. "
+        "각 문장은 '관측된 요인 → 진단과 연결되는 이유 → 아직 확인 안 된 변수' 순서로 작성한다. "
+        "같은 뜻의 표현 반복, 공허한 '지원이 필요하다' 문장 금지.\n"
+        "4) support_directions: 정책 시행을 지시하지 말고 검토할 지원 *유형*만 제안한다. "
+        "policy_types가 있다면 그 목록의 표현만 사용하여 각 1~2문장(각 90~160자)으로 "
+        "'이 지역의 근거 → 왜 검토 후보인지 → 무엇이 확인되어야 검토할 수 있는지'를 설명한다. "
+        "policy_types가 없다면 지원 유형/사업을 새로 발명하지 말고 "
+        "'검증된 지원 유형 자료가 없어 현장 확인 후 지원사업 DB 대조가 필요합니다'를 한 항목으로 쓴다. "
+        "support_programs가 비어 있으면 절대로 실제 사업명, 시행기관, 선정 조건, 예산액, 지원 금액, 성과를 만들지 않는다. "
+        "최종 지원 우선순위는 정하지 않는다.\n"
+        "5) onsite_checks: 현장 담당자가 바로 사용할 질문 3~4개(각 70~135자). "
+        "각 항목은 (가) 어떤 사실을 확인할지 (나) 무엇을 수집·관찰할지 "
+        "(다) 어떤 해석을 구분하는 데 쓰일지를 명확히 포함한다."
+        " 진입 병목이라면 *안정적 기존 점포 때문에 신규 진입이 낮은 경우*와 *수요 저하/진입 장애로 신규 진입이 낮은 경우*를 "
+        "현장 조사로 구분하는 과정을 반드시 포함한다. 생존 병목은 개업 후 초기 이탈 여부, "
+        "폐업 사유, 업종 구성 및 비용 조건의 확인을 우선 제안하되 관측하지 않은 사실을 단언하지 않는다.\n"
+        "6) decision_paths: 현장 확인 결과에 따라 다음 검토가 달라지는 조건부 문장 2개(각 80~145자). "
+        "예: '실제 공실과 신규 진입 장애가 확인된다면 → 원인별 현장 지원 검토', "
+        "'공실이 적고 기존 점포가 안정적이면 → 무리한 신규 유치 대신 추가 수요 조사'. "
+        "이 예는 가상 조건이지 해당 지역의 확인된 사실이 아니다. 병목 유형에 맞게 새로 쓰되 "
+        "지원 효과를 단정하거나 존재하지 않는 지원사업명을 쓰지 않는다.\n"
+        "7) limitations(2~3문장): 인허가·인구 기반 상대 진단이며 매출·개별 점포 성공·정책 효과를 예측하지 않는다고 명시. "
+        "과거 병목 유형 적중률은 단순 폐업률 규칙 대비 우월성을 보장하지 않는다.\n"
+        "8) 본문 합계는 약 1,500~2,300자. 분량만 늘리지 말고 문장마다 지역의 근거, 검증 단계, 혹은 판단상의 의미를 넣는다. "
+        "'상권 활성화 필요', '지원이 시급하다', '매출 증가 기대', '정책 시행을 권고한다' 등 단정적 표현 금지. "
+        "rule_agree=false면 단순 지표와 모델 결과가 엇갈린다는 점과 현장 확인 우선 원칙을 분명히 쓴다.\n\n"
+        "[수치 표기 규칙] 아래 '검증값'을 *그대로* 인용하라. 원시 JSON의 개업/폐업 비율(예: 1.718)은 "
+        "1.72건/점포 같은 비율이지 1.72개 점포나 172% 폐업률이 아니다. "
+        "원본에 없는 외부 평균·지역 순위·공실률·관광객·임대료 수준·고객 수·매출 등은 숫자든 사실이든 추가 금지. "
+        "top_factors의 '높음/낮음'은 입력에 제공된 상대적 분류이며 해당 값의 수치를 임의로 계산하지 마라.\n"
+        f"검증된 화면 지표: {json.dumps(metrics,ensure_ascii=False)}\n\n"
+        f"팀 보고서 운영 규칙(상충 시 사실과 안전 관련 규칙을 우선):\n{rules}\n\n"
+        f"지역별 입력 데이터(JSON):\n{json.dumps(d,ensure_ascii=False,default=str)}"
+    )
+
+
+def _ai_report_payload(raw: str):
+    """Return a validated structured AI result, or None for older plain-text reports."""
+    value=str(raw or '').strip()
+    value=re.sub(r'^```(?:json)?\s*|\s*```$', '', value, flags=re.I).strip()
+    try:
+        obj=json.loads(value)
+    except (ValueError,TypeError):
+        first=value.find('{')
+        last=value.rfind('}')
+        if first<0 or last<=first:
+            return None
+        try:
+            obj=json.loads(value[first:last+1])
+        except (ValueError,TypeError):
+            return None
+    if not isinstance(obj,dict) or not isinstance(obj.get('summary'),str):
+        return None
+    fields=('summary','interpretation','limitations')
+    for key in fields:
+        if key not in obj or not isinstance(obj[key],str):
+            obj[key]=''
+        obj[key]=obj[key].strip()[:1400]
+    for key in ('factors','support_directions','onsite_checks','decision_paths'):
+        v=obj.get(key,[])
+        if isinstance(v,str):
+            v=[v]
+        if not isinstance(v,list):
+            v=[]
+        obj[key]=[str(x).strip()[:650] for x in v if isinstance(x,str) and x.strip()][:5]
+    return obj
+
+
+def _report_metric_cells(d):
+    """Measured numbers come only from CSV, never generated LLM text."""
+    stt=d['status']
+    active=stt.get('active_food_stores')
+    active_label=f'{int(active):,}곳' if active is not None else '자료 없음'
+    def ratio(x):
+        return '자료 없음' if x is None else f'{float(x):.2f}건/점포'
+    return [
+        ('영업 중 외식 점포',active_label,'2025년 말'),
+        ('최근 3년 점포 증감',_pct(stt.get('store_change_3y'),True),'과거 현황'),
+        ('최근 3년 개업',ratio(stt.get('openings_3y_per_store')),'현재 점포 수 대비'),
+        ('최근 3년 폐업',ratio(stt.get('closures_3y_per_store')),'현재 점포 수 대비'),
+        ('최근 3년 인구 변화',_pct(stt.get('population_change_3y'),True),'주민등록 기준'),
+    ]
+
+
+def _ai_report_html(raw: str, d) -> str:
+    """Consistent accessible report design, even if the model omits formatting."""
+    obj=_ai_report_payload(raw)
+    def e(v):
+        return escape(str(v or ''),quote=True)
+    def bullets(values):
+        if not values:
+            return '<p class="dfb-ai-muted">제공된 자료로 확인할 내용이 없습니다.</p>'
+        return '<ul class="dfb-ai-list">'+''.join(f'<li>{e(x)}</li>' for x in values)+'</ul>'
+    def section(number,title,body,extra=''):
+        return (f'<section class="dfb-ai-section {extra}">'
+                f'<div class="dfb-ai-sec-head"><span>{number}</span><h3>{e(title)}</h3></div>'
+                f'<div class="dfb-ai-sec-body">{body}</div></section>')
+    metrics=''.join('<div class="dfb-ai-metric"><div class="dfb-ai-metric-label">'+e(label)+'</div>'
+                    '<div class="dfb-ai-metric-value">'+e(value)+'</div>'
+                    '<div class="dfb-ai-metric-note">'+e(note)+'</div></div>'
+                    for label,value,note in _report_metric_cells(d))
+    if obj is not None:
+        intro=(f'<div class="dfb-ai-summary-tag">핵심 요약</div>'
+               f'<p class="dfb-ai-summary-text">{e(obj["summary"])}</p>'
+               + (f'<p class="dfb-ai-summary-sub">{e(obj["interpretation"])}</p>' if obj['interpretation'] else ''))
+        content=(section('01','근거 숫자','<div class="dfb-ai-metrics">'+metrics+'</div>')
+                 + section('02','진단에 작용한 요인',bullets(obj['factors']))
+                 + '<div class="dfb-ai-side-grid">'
+                 +section('03','먼저 검토할 지원 방향',bullets(obj['support_directions']),'dfb-ai-side')
+                 +section('04','현장에서 확인할 사항',bullets(obj['onsite_checks']),'dfb-ai-side')
+                 +'</div>'
+                 +(section('05','현장 결과에 따른 다음 판단',
+                    '<div class="dfb-ai-decisions">'+''.join(
+                        f'<div class="dfb-ai-decision"><span class="dfb-ai-decision-index">조건 {i}</span><p>{e(x)}</p></div>'
+                        for i,x in enumerate(obj['decision_paths'],1))+'</div>') if obj['decision_paths'] else '')
+                 +section('06' if obj['decision_paths'] else '05','분석의 한계',f'<p>{e(obj["limitations"])}</p>','dfb-ai-limits'))
+    else:
+        # Older AI text still receives clean headings, readable spacing and verified figures.
+        lines=str(raw or '').splitlines()
+        parts=[]; buf=[]
+        def flush():
+            if buf:
+                parts.append('<p>'+e(' '.join(buf))+'</p>')
+                buf.clear()
+        for line in lines:
+            clean=line.strip()
+            if not clean:
+                flush();continue
+            if re.match(r'^#{1,5}\s+|^\d+[.)]\s+[^:]+$',clean):
+                flush()
+                title=re.sub(r'^#{1,5}\s+|^\d+[.)]\s*','',clean)
+                parts.append('<h4>'+e(title)+'</h4>')
+            elif re.match(r'^[-*•]\s+',clean):
+                flush();parts.append('<div class="dfb-ai-legacy-bullet">'+e(re.sub(r'^[-*•]\s+','',clean))+'</div>')
+            else:
+                buf.append(clean)
+        flush()
+        intro=('<div class="dfb-ai-summary-tag">AI 분석</div>'
+               '<p class="dfb-ai-summary-text">기존 생성 보고서를 표시하고 있습니다. '
+               '새 구성으로 다시 생성하면 요약·요인·지원 방향이 구분되어 나타납니다.</p>')
+        content=(section('01','근거 숫자','<div class="dfb-ai-metrics">'+metrics+'</div>')
+                 +section('02','AI 분석 내용',''.join(parts),'dfb-ai-legacy'))
+    return '<article class="dfb-ai-report"><div class="dfb-ai-summary">'+intro+'</div>'+content+'</article>'
+
+
+def _ai_report_pdf_text(raw: str, d) -> str:
+    """Make structured results human-readable for the existing Korean PDF writer."""
+    obj=_ai_report_payload(raw)
+    if obj is None:
+        return str(raw)
+    parts=['01 / 핵심 요약',obj['summary'],obj['interpretation'],'',
+           '02 / 검증된 근거 숫자']
+    parts.extend(f'- {name}: {value} ({note})' for name,value,note in _report_metric_cells(d))
+    parts.extend(['','03 / 진단에 작용한 요인'])
+    parts.extend('- '+x for x in obj['factors'])
+    parts.extend(['','04 / 먼저 검토할 지원 방향'])
+    parts.extend('- '+x for x in obj['support_directions'])
+    parts.extend(['','05 / 현장 확인 사항'])
+    parts.extend('- '+x for x in obj['onsite_checks'])
+    if obj['decision_paths']:
+        parts.extend(['','06 / 현장 결과에 따른 다음 판단'])
+        parts.extend(f'- 조건 {i}: {x}' for i,x in enumerate(obj['decision_paths'],1))
+    parts.extend(['','07 / 해석상의 한계' if obj['decision_paths'] else '06 / 해석상의 한계',obj['limitations']])
+    return '\n'.join(parts)
 
 @st.cache_data(ttl=6*60*60, max_entries=300, show_spinner=False)
 def _gemini_generate_cached(unit: str, data_json: str, _api_key: str):
@@ -298,7 +483,7 @@ def _gemini_generate_cached(unit: str, data_json: str, _api_key: str):
         f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
         headers={'x-goog-api-key':_api_key, 'Content-Type':'application/json'},
         json={'contents':[{'role':'user','parts':[{'text':_prompt(data)}]}],
-              'generationConfig':{'temperature':0.15,'maxOutputTokens':2000}},
+              'generationConfig':{'temperature':0.15,'maxOutputTokens':4400}},
         timeout=45,
     )
     if response.status_code==429:
@@ -401,6 +586,59 @@ def show_report_page(unit: str):
     [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"]{
        gap:.5rem!important}
     .dfb-report-paper{margin-top:0!important}
+    /* Structured Gemini report: neutral municipal tone, distinct sections, responsive. */
+    .dfb-ai-report{font-family:inherit;color:#17202b!important;background:#fff;border:1px solid #e0e3e6;
+      border-radius:13px;overflow:hidden;margin:0 0 8px}
+    .dfb-ai-summary{padding:24px 27px 22px;background:linear-gradient(105deg,#fbf8f5,#fff 80%);
+      border-bottom:1px solid #e6e1da;border-left:4px solid #b95b1d}
+    .dfb-ai-summary-tag{font-size:12px!important;font-weight:850;color:#9a4f1e!important;letter-spacing:.02em;margin-bottom:10px}
+    .dfb-ai-summary-text{font-size:18px!important;line-height:1.75!important;font-weight:760!important;
+      letter-spacing:-.02em;color:#1b2635!important;margin:0!important;word-break:keep-all;overflow-wrap:break-word}
+    .dfb-ai-summary-sub{font-size:14px!important;line-height:1.8!important;color:#5e6570!important;
+      margin:11px 0 0!important;word-break:keep-all;overflow-wrap:break-word}
+    .dfb-ai-section{padding:20px 27px 21px;border-bottom:1px solid #e8ebef}
+    .dfb-ai-section:last-child{border-bottom:0}
+    .dfb-ai-sec-head{display:flex;align-items:baseline;gap:10px;margin:0 0 13px}
+    .dfb-ai-sec-head>span{color:#af602a!important;font-size:12px!important;font-weight:850!important;letter-spacing:.05em}
+    .dfb-ai-sec-head h3{font-size:16px!important;line-height:1.5!important;font-weight:850!important;
+      letter-spacing:-.025em;color:#202630!important;margin:0!important}
+    .dfb-ai-sec-body p{font-size:14px!important;line-height:1.75!important;margin:0 0 10px!important;color:#384251!important}
+    .dfb-ai-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .dfb-ai-metric{border:1px solid #e5e7ea;background:#fafafa;border-radius:9px;padding:14px 15px;min-width:0}
+    .dfb-ai-metric-label{font-size:12px!important;color:#66707b!important;font-weight:700!important;margin-bottom:7px}
+    .dfb-ai-metric-value{font-size:21px!important;line-height:1.2!important;color:#17202b!important;font-weight:900!important;
+      letter-spacing:-.04em;white-space:nowrap}
+    .dfb-ai-metric-note{font-size:11px!important;color:#727a85!important;margin-top:8px;line-height:1.4!important}
+    .dfb-ai-list{list-style:none!important;padding:0!important;margin:0!important;display:flex;flex-direction:column;gap:12px}
+    .dfb-ai-list li{position:relative;padding-left:16px;font-size:14px!important;line-height:1.75!important;
+      color:#384251!important;word-break:keep-all;overflow-wrap:break-word}
+    .dfb-ai-list li::before{content:' ';position:absolute;top:.7em;left:0;width:6px;height:6px;
+      background:#b96129;border-radius:50%}
+    .dfb-ai-side-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e8ebef}
+    .dfb-ai-side-grid>.dfb-ai-section{border-bottom:0}
+    .dfb-ai-side-grid>.dfb-ai-section+.dfb-ai-section{border-left:1px solid #e8ebef}
+    .dfb-ai-decisions{display:grid;grid-template-columns:1fr;gap:9px}
+    .dfb-ai-decision{display:flex;align-items:flex-start;gap:13px;border:1px solid #e7e8e9;
+      background:#fbfbfa;border-radius:10px;padding:12px 15px}
+    .dfb-ai-decision-index{flex:none;display:inline-block;padding:5px 7px;border-radius:5px;
+      background:#f1ebe4;color:#92501d!important;font-size:11px!important;font-weight:800!important;white-space:nowrap}
+    .dfb-ai-decision p{margin:0!important;font-size:14px!important;line-height:1.7!important;color:#384251!important;
+      word-break:keep-all;overflow-wrap:break-word}
+    .dfb-ai-limits{background:#f8f9fa}
+    .dfb-ai-limits .dfb-ai-sec-head>span{color:#7a8795!important}
+    .dfb-ai-muted{color:#858c94!important}
+    .dfb-ai-legacy h4{font-size:15px!important;margin:13px 0 9px!important;color:#212a37!important}
+    .dfb-ai-legacy-bullet{position:relative;padding:3px 0 5px 17px;font-size:14px!important;line-height:1.8!important;color:#384251!important}
+    .dfb-ai-legacy-bullet::before{content:'•';position:absolute;left:0;color:#af602a}
+    @media(max-width:720px){
+      .dfb-ai-summary{padding:19px}.dfb-ai-section{padding:18px}
+      .dfb-ai-summary-text{font-size:16px!important}
+      .dfb-ai-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .dfb-ai-metric-value{font-size:18px!important}
+      .dfb-ai-side-grid{grid-template-columns:1fr}
+      .dfb-ai-side-grid>.dfb-ai-section+.dfb-ai-section{border-left:0;border-top:1px solid #e8ebef}
+    }
+
     .dfb-close-tab{box-sizing:border-box;display:flex;justify-content:center;align-items:center;
        width:100%;min-height:45px;white-space:nowrap;background:#17181b!important;
        color:#fff!important;-webkit-text-fill-color:#fff!important;
@@ -478,10 +716,8 @@ def show_report_page(unit: str):
     base=_grounded_draft(d)
     st.markdown(f'<div class="dfb-report-section-title">분석 보고서 <span class="dfb-report-mode">({report_kind})</span></div>',unsafe_allow_html=True)
     if mode=='ai' and generated:
-        # Native markdown for LLM-generated headings/lists, with explicit high
-        # contrast styles defined above. Never send this text as pale st.text().
-        with st.container(border=True):
-            st.markdown(generated)
+        # Render a consistent report design. Escape all model text before adding HTML.
+        st.markdown(_ai_report_html(generated,d),unsafe_allow_html=True)
     else:
         st.markdown(_draft_html(base),unsafe_allow_html=True)
 
@@ -517,7 +753,7 @@ def show_report_page(unit: str):
                     except (RuntimeError,requests.RequestException) as exc:
                         st.error(str(exc))
     with c3:
-        text_to_save=(generated if mode=='ai' and generated else base)
+        text_to_save=(_ai_report_pdf_text(generated,d) if mode=='ai' and generated else base)
         if d['diagnosis']['bottleneck']=='진입 병목':
             text_to_save+='\n\n필수 현장 조사: '+_field_survey('진입 병목')
         try:
