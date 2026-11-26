@@ -1,6 +1,6 @@
 """DAEGU FOOD BIZ · HTML/SVG interface hosted at the existing Streamlit Cloud URL.
 The local SVG map handles clicks without rerunning Streamlit; CSV/GeoJSON
-inputs refresh when files change. PostgreSQL/LLM are not yet connected.
+inputs refresh when files change. Gemini reports use Streamlit Secrets.
 """
 from __future__ import annotations
 import json
@@ -258,7 +258,7 @@ def _field_survey(bottleneck: str):
         return ('[필수] 실무 담당자의 현장 조사를 반드시 선행해야 합니다. 기존 점포가 안정적으로 유지되어 '
                 '신규 진입이 적은 경우인지, 상권이 침체되어 신규 진입이 적은 경우인지 모델만으로 구별할 수 없습니다. '
                 '공실·임대료·업종 구성·지역 수요를 확인한 뒤 정책 방향을 검토해야 합니다. '
-                '지원사업 데이터가 제공되더라도 현장 조사 필요성은 변하지 않습니다.')
+                '실제 지원 방향은 현장 상황을 확인한 뒤 신중하게 검토해야 합니다.')
     return ('실무 담당자는 임대료, 업종 과밀 여부, 폐업 사유와 현장 수요를 확인하고 '
             '정책의 적합성을 검토해야 합니다. 모델 진단만으로 정책 효과를 단정할 수 없습니다.')
 
@@ -274,8 +274,8 @@ def _grounded_draft(d):
       '', '03 / 진단에 작용한 주요 변수',
       ', '.join(v) if v else '제공된 변수 설명 없음',
       '', '04 / 정책 검토',
-      ('팀 제공 검토 유형(지원사업 확정 아님): '+', '.join(d['policy_types'])) if d['policy_types'] else '검토 유형 자료 미제공',
-      '[연결 예정] 지원사업 데이터베이스 수신 후 검증된 사업명·자격 요건을 연계합니다.',
+      ('검토 가능한 지원 유형: '+', '.join(d['policy_types'])) if d['policy_types'] else '지원 방향은 현장 상황 확인 후 검토',
+      '현장 조사 결과를 바탕으로 지원 방향의 적합성을 검토합니다.',
       '', '05 / 현장 조사', _field_survey(g['bottleneck']),
       '', '06 / 해석상 한계',
       '외식 점포 인허가 기록과 인구 변수를 이용한 분석입니다. 매출 예측이나 개별 점포 성공 예측, 지원 우선순위 결정에 사용할 수 없습니다. 과거 병목 유형 적중률은 약 70%이며 단순 폐업률 규칙 대비 우월성이 입증된 것은 아닙니다.'
@@ -284,6 +284,7 @@ def _grounded_draft(d):
 def _prompt(d):
     """Ask for an evidence-linked *specific* report, without unverified policies."""
     rules=(ROOT/'llm/report_rules.md').read_text(encoding='utf-8')
+    rules='\n'.join(line for line in rules.splitlines() if not re.search(r'DB|데이터베이스|지원사업 데이터|연결 사업', line, re.I))
     # Send explicit display units so the LLM does not mistake ratios for store counts.
     metrics=[{'지표':name,'검증값':value,'설명':note}
              for name,value,note in _report_metric_cells(d)]
@@ -316,8 +317,10 @@ def _prompt(d):
         "4) support_directions: 정책 시행을 지시하지 말고 검토할 지원 *유형*만 제안한다. "
         "policy_types가 있다면 그 목록의 표현만 사용하여 각 1~2문장(각 90~160자)으로 "
         "'이 지역의 근거 → 왜 검토 후보인지 → 무엇이 확인되어야 검토할 수 있는지'를 설명한다. "
-        "policy_types가 없다면 지원 유형/사업을 새로 발명하지 말고 "
-        "'검증된 지원 유형 자료가 없어 현장 확인 후 지원사업 DB 대조가 필요합니다'를 한 항목으로 쓴다. "
+        "policy_types가 없다면 구체적인 시행 사업명이나 지원 대상 자격을 만들어내지 말고, "
+        "병목 진단과 실제 확인된 지표에 근거해 현장 조사를 먼저 수행한 후 검토할 실무 방향 2~3개를 제시한다. "
+        "각 방향은 '관찰된 근거 → 현장 확인 조건 → 조건이 맞을 때 검토할 조치' 순서로 쓴다. "
+        "데이터베이스 구축 계획, 연결 예정, 미표시 안내는 본문에 쓰지 않는다. "
         "support_programs가 비어 있으면 절대로 실제 사업명, 시행기관, 선정 조건, 예산액, 지원 금액, 성과를 만들지 않는다. "
         "최종 지원 우선순위는 정하지 않는다.\n"
         "5) onsite_checks: 현장 담당자가 바로 사용할 질문 3~4개(각 70~135자). "
@@ -346,8 +349,28 @@ def _prompt(d):
     )
 
 
+
+def _clean_report_language(value):
+    """Avoid stale statements about databases that the project does not use."""
+    s=str(value or '')
+    replacements={
+        '현장 조사 후 실제 지원사업 DB와 대조하여 검토합니다. 사업명·지원 자격은 아직 표시하지 않습니다.':
+            '현장 조사 결과를 바탕으로 지원 방향을 검토합니다.',
+        '사업명과 지원 대상은 검증된 지원사업 DB 연계 후 확인해야 합니다.':
+            '지원 방향은 지역 현황과 현장 조사 결과를 함께 검토해 판단합니다.',
+        '[연결 예정] 지원사업 데이터베이스 수신 후 검증된 사업명·자격 요건을 연계합니다.':
+            '현장 조사 결과를 바탕으로 적용 가능한 지원 방향을 검토합니다.',
+        '검증된 지원 유형 자료가 없어 현장 확인 후 지원사업 DB 대조가 필요합니다':
+            '지역의 실제 여건을 먼저 확인한 뒤 적절한 지원 방향을 검토합니다',
+        '[연결 예정] 지원사업 DB 연결 후 표시':
+            '현장 여건을 확인한 후 지원 방향 검토',
+    }
+    for before,after in replacements.items():
+        s=s.replace(before,after)
+    return s
+
 def _ai_report_payload(raw: str):
-    """Return a validated structured AI result, or None for older plain-text reports."""
+    """Parse Gemini JSON, including recoverable partial/truncated responses."""
     value=str(raw or '').strip()
     value=re.sub(r'^```(?:json)?\s*|\s*```$', '', value, flags=re.I).strip()
     try:
@@ -355,28 +378,64 @@ def _ai_report_payload(raw: str):
     except (ValueError,TypeError):
         first=value.find('{')
         last=value.rfind('}')
-        if first<0 or last<=first:
-            return None
         try:
-            obj=json.loads(value[first:last+1])
+            obj=json.loads(value[first:last+1]) if first>=0 and last>first else None
         except (ValueError,TypeError):
-            return None
-    if not isinstance(obj,dict) or not isinstance(obj.get('summary'),str):
+            obj=None
+    keys=('summary','interpretation','limitations','factors','support_directions','onsite_checks','decision_paths')
+    if not isinstance(obj,dict):
+        # Recover complete property values even when the outer JSON was
+        # interrupted by a response token limit. Never output the raw blob.
+        obj={}
+        decoder=json.JSONDecoder()
+        for key in keys:
+            match=re.search(r'"'+re.escape(key)+r'"\s*:', value)
+            if not match:
+                continue
+            fragment=value[match.end():].lstrip()
+            try:
+                parsed,_=decoder.raw_decode(fragment)
+            except ValueError:
+                parsed=None
+            if parsed is not None:
+                obj[key]=parsed
+                continue
+            if fragment.startswith('"'):
+                # Recover a completed quoted string if possible.
+                for stop in range(2,len(fragment)+1):
+                    if fragment[stop-1]!='"':
+                        continue
+                    try:
+                        recovered=json.loads(fragment[:stop])
+                        obj[key]=recovered
+                        break
+                    except ValueError:
+                        pass
+            elif fragment.startswith('['):
+                # Recover complete string elements from a truncated list.
+                next_field=re.search(r',\s*"(?:'+ '|'.join(keys) + r')"\s*:', fragment)
+                sliced=fragment[:next_field.start()] if next_field else fragment
+                entries=[]
+                for quoted in re.finditer(r'"(?:\\.|[^"\\])*"',sliced):
+                    try:
+                        entries.append(json.loads(quoted.group()))
+                    except ValueError:
+                        pass
+                if entries:
+                    obj[key]=entries
+    if not isinstance(obj,dict) or not isinstance(obj.get('summary'),str) or not obj['summary'].strip():
         return None
-    fields=('summary','interpretation','limitations')
-    for key in fields:
-        if key not in obj or not isinstance(obj[key],str):
-            obj[key]=''
-        obj[key]=obj[key].strip()[:1400]
+    for key in ('summary','interpretation','limitations'):
+        item=obj.get(key,'')
+        obj[key]=_clean_report_language(item.strip()[:1400]) if isinstance(item,str) else ''
     for key in ('factors','support_directions','onsite_checks','decision_paths'):
-        v=obj.get(key,[])
-        if isinstance(v,str):
-            v=[v]
-        if not isinstance(v,list):
-            v=[]
-        obj[key]=[str(x).strip()[:650] for x in v if isinstance(x,str) and x.strip()][:5]
+        item=obj.get(key,[])
+        if isinstance(item,str):
+            item=[item]
+        if not isinstance(item,list):
+            item=[]
+        obj[key]=[_clean_report_language(x.strip()[:650]) for x in item if isinstance(x,str) and x.strip()][:5]
     return obj
-
 
 def _report_metric_cells(d):
     """Measured numbers come only from CSV, never generated LLM text."""
@@ -427,8 +486,15 @@ def _ai_report_html(raw: str, d) -> str:
                         for i,x in enumerate(obj['decision_paths'],1))+'</div>') if obj['decision_paths'] else '')
                  +section('06' if obj['decision_paths'] else '05','분석의 한계',f'<p>{e(obj["limitations"])}</p>','dfb-ai-limits'))
     else:
-        # Older AI text still receives clean headings, readable spacing and verified figures.
-        lines=str(raw or '').splitlines()
+        # Failed structured output should become a readable, verified draft,
+        # not a wall of raw JSON; genuine older plain text remains supported.
+        looks_like_json=bool(re.search(r'^\s*(?:```json\s*)?[\{\[]',str(raw or ''),re.I))
+        if looks_like_json:
+            return ('<div class="dfb-ai-muted" style="margin-bottom:12px">'
+                    'AI 응답 일부가 손상되어 검증된 기본 초안을 대신 표시합니다. '
+                    'AI 보고서를 다시 생성하면 새 구조로 확인할 수 있습니다.</div>'
+                    + _draft_report_html(d))
+        lines=_clean_report_language(str(raw or '')).splitlines()
         parts=[]; buf=[]
         def flush():
             if buf:
@@ -459,7 +525,9 @@ def _ai_report_pdf_text(raw: str, d) -> str:
     """Make structured results human-readable for the existing Korean PDF writer."""
     obj=_ai_report_payload(raw)
     if obj is None:
-        return str(raw)
+        if re.search(r'^\s*(?:```json\s*)?[\{\[]',str(raw or ''),re.I):
+            return _grounded_draft(d)
+        return _clean_report_language(str(raw))
     parts=['01 / 핵심 요약',obj['summary'],obj['interpretation'],'',
            '02 / 검증된 근거 숫자']
     parts.extend(f'- {name}: {value} ({note})' for name,value,note in _report_metric_cells(d))
@@ -483,7 +551,7 @@ def _gemini_generate_cached(unit: str, data_json: str, _api_key: str):
         f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
         headers={'x-goog-api-key':_api_key, 'Content-Type':'application/json'},
         json={'contents':[{'role':'user','parts':[{'text':_prompt(data)}]}],
-              'generationConfig':{'temperature':0.15,'maxOutputTokens':4400}},
+              'generationConfig':{'temperature':0.15,'maxOutputTokens':6200,'responseMimeType':'application/json'}},
         timeout=45,
     )
     if response.status_code==429:
@@ -584,12 +652,14 @@ def _draft_report_html(d) -> str:
     supplied_types=list(d.get('policy_types') or [])
     if supplied_types:
         support=(lines(supplied_types)
-                 +'<p class="dfb-draft-caption">팀 제공 검토 유형으로, 실제 시행 사업으로 확정된 목록은 아닙니다. '
-                 '사업명과 지원 대상은 검증된 지원사업 DB 연계 후 확인해야 합니다.</p>')
+                 +'<p class="dfb-draft-caption">검토 가능한 지원 유형이며, 적용 여부는 해당 지역의 현장 여건 확인 후 판단합니다.</p>')
+    elif kind=='진입 병목':
+        support=('<p>신규 입점이 적은 이유를 먼저 구분해야 합니다. 실제 공실·임대료와 지역 수요를 확인하고, '
+                 '진입 장애가 확인되면 입점 여건 개선을 검토합니다. 기존 점포가 안정적이라면 무리한 신규 유치보다 '
+                 '수요와 업종 구성을 추가로 살펴봅니다.</p>')
     else:
-        support=('<p class="dfb-draft-empty">검증된 지원 유형 자료 미제공</p>'
-                 '<p class="dfb-draft-caption">현장 조사 후 실제 지원사업 DB와 대조하여 검토합니다. '
-                 '사업명·지원 자격은 아직 표시하지 않습니다.</p>')
+        support=('<p>폐업이 집중되는 업력과 실제 폐업 사유를 먼저 확인합니다. 초기 영업 단계의 어려움이 확인되면 '
+                 '운영 안정·경영 상담의 필요성을 검토하고, 업종 경쟁이나 비용 부담이 주요 요인인지 현장에서 구분합니다.</p>')
 
     checks=list(d.get('check_on_site') or [])
     if not checks:
