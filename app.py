@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+import random
 from urllib.parse import urlsplit, urlunsplit, urlencode
 import requests
 from html import escape
@@ -545,28 +547,66 @@ def _ai_report_pdf_text(raw: str, d) -> str:
 
 @st.cache_data(ttl=6*60*60, max_entries=300, show_spinner=False)
 def _gemini_generate_cached(unit: str, data_json: str, _api_key: str):
-    # The API key lives server-side in Streamlit Secrets and is never embedded in HTML.
-    data=json.loads(data_json)
-    response=requests.post(
-        f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
-        headers={'x-goog-api-key':_api_key, 'Content-Type':'application/json'},
-        json={'contents':[{'role':'user','parts':[{'text':_prompt(data)}]}],
-              'generationConfig':{'temperature':0.15,'maxOutputTokens':6200,'responseMimeType':'application/json'}},
-        timeout=45,
-    )
-    if response.status_code==429:
-        raise RuntimeError('무료 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요. 유료 모델로 전환하지 않습니다.')
-    if response.status_code in (401,403):
-        raise RuntimeError('Gemini API 키 또는 프로젝트 권한을 확인해 주세요.')
-    if response.status_code==404:
-        raise RuntimeError('선택한 Gemini 무료 모델을 이 API 키로 사용할 수 없습니다. Google AI Studio의 모델 사용 가능 여부를 확인해 주세요.')
-    if not response.ok:
-        raise RuntimeError(f'Gemini API 응답 오류 (HTTP {response.status_code}). 잠시 후 다시 시도해 주세요.')
-    payload=response.json()
-    text='\n'.join(part.get('text','') for c in payload.get('candidates',[]) for part in c.get('content',{}).get('parts',[]))
-    if not text.strip():
-        raise RuntimeError('Gemini가 텍스트를 반환하지 않았습니다. 검증된 기본 보고서를 사용해 주세요.')
-    return text.strip()
+    """Generate AI report with bounded retries for transient Gemini server failures.
+
+    Never retry 429 quota errors or authentication errors; never expose the API key.
+    A failed request is not cached, so the existing draft remains available.
+    """
+    data = json.loads(data_json)
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    headers = {'x-goog-api-key': _api_key, 'Content-Type': 'application/json'}
+    payload = {
+        'contents': [{'role': 'user', 'parts': [{'text': _prompt(data)}]}],
+        'generationConfig': {
+            'temperature': 0.15,
+            'maxOutputTokens': 6200,
+            'responseMimeType': 'application/json',
+        },
+    }
+    transient_codes = {500, 502, 503, 504}
+    max_attempts = 3  # first request + at most 2 retries
+
+    for attempt in range(max_attempts):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=45)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            if attempt == max_attempts - 1:
+                raise RuntimeError(
+                    'Gemini 서버 연결이 불안정해 자동 재시도 후에도 응답을 받지 못했습니다. '
+                    '기본 초안은 계속 사용할 수 있습니다.'
+                ) from exc
+        else:
+            if response.ok:
+                try:
+                    body = response.json()
+                except ValueError as exc:
+                    raise RuntimeError('Gemini 응답 형식을 읽을 수 없습니다. 기본 초안을 사용해 주세요.') from exc
+                result = '\n'.join(
+                    part.get('text', '')
+                    for candidate in body.get('candidates', [])
+                    for part in candidate.get('content', {}).get('parts', [])
+                    if isinstance(part, dict)
+                )
+                if not result.strip():
+                    raise RuntimeError('Gemini가 보고서 내용을 반환하지 않았습니다. 기본 초안을 사용해 주세요.')
+                return result.strip()
+            if response.status_code == 429:
+                raise RuntimeError('Gemini API 사용량 한도(HTTP 429)를 확인해 주세요. 자동 재시도하지 않습니다.')
+            if response.status_code in (401, 403):
+                raise RuntimeError('Gemini API 키 또는 프로젝트 권한을 확인해 주세요.')
+            if response.status_code == 404:
+                raise RuntimeError('선택한 Gemini 모델을 사용할 수 없습니다. Google AI Studio에서 모델 사용 가능 여부를 확인해 주세요.')
+            if response.status_code not in transient_codes:
+                raise RuntimeError(f'Gemini API 응답 오류 (HTTP {response.status_code}).')
+            if attempt == max_attempts - 1:
+                raise RuntimeError(
+                    f'Gemini 서버가 일시적으로 응답하지 않습니다 (HTTP {response.status_code}). '
+                    '자동 재시도 2회 후에도 실패했습니다. 기본 초안은 계속 사용할 수 있습니다.'
+                )
+        # Exponential backoff with jitter to avoid retry storms (no extra quota requests on 429).
+        time.sleep((2 ** attempt) + random.uniform(0.0, 0.4))
+
+    raise RuntimeError('Gemini 보고서를 생성하지 못했습니다. 기본 초안을 이용해 주세요.')
 
 def _report_back_url(unit: str) -> str:
     """Return to the officer map and restore the previously viewed region/layer."""
