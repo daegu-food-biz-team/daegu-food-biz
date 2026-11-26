@@ -327,7 +327,9 @@ def _prompt(d):
         "최종 지원 우선순위는 정하지 않는다.\n"
         "5) onsite_checks: 현장 담당자가 바로 사용할 질문 3~4개(각 70~135자). "
         "각 항목은 (가) 어떤 사실을 확인할지 (나) 무엇을 수집·관찰할지 "
-        "(다) 어떤 해석을 구분하는 데 쓰일지를 명확히 포함한다."
+        "(다) 어떤 해석을 구분하는 데 쓰일지를 명확히 포함한다. "
+        "(가), (나), (다)를 각각 완결된 독립 문장으로 적고, 서로 합쳐 쓰지 않는다. "
+        "순서는 반드시 (가)→(나)→(다)로 유지한다."
         " 진입 병목이라면 *안정적 기존 점포 때문에 신규 진입이 낮은 경우*와 *수요 저하/진입 장애로 신규 진입이 낮은 경우*를 "
         "현장 조사로 구분하는 과정을 반드시 포함한다. 생존 병목은 개업 후 초기 이탈 여부, "
         "폐업 사유, 업종 구성 및 비용 조건의 확인을 우선 제안하되 관측하지 않은 사실을 단언하지 않는다.\n"
@@ -455,6 +457,47 @@ def _report_metric_cells(d):
     ]
 
 
+def _onsite_check_segments(value: str):
+    """Split Gemini's inline (가)/(나)/(다) without rewriting its facts.
+
+    Returns a leading note (if any) and ordered (marker, body) pairs.
+    When a response has no 가나다 markers, caller renders the original line.
+    """
+    value=str(value or '').strip()
+    marker_re=re.compile(r'(?<![가-힣A-Za-z0-9])(?:\(([가나다])\)|([가나다])[).:])\s*')
+    marks=list(marker_re.finditer(value))
+    if not marks:
+        return '', []
+    intro=value[:marks[0].start()].strip()
+    segments=[]
+    for i,m in enumerate(marks):
+        body=value[m.end():(marks[i+1].start() if i+1<len(marks) else len(value))].strip(' \t\r\n;·')
+        if body:
+            segments.append((m.group(1) or m.group(2),body))
+    return intro,segments
+
+
+def _onsite_check_html(items) -> str:
+    """One distinct, aligned row for each 가/나/다 field, including older AI reports."""
+    if not items:
+        return '<p class="dfb-ai-muted">제공된 자료로 확인할 내용이 없습니다.</p>'
+    chunks=[]
+    for idx,item in enumerate(items,1):
+        intro,parts=_onsite_check_segments(item)
+        if parts:
+            inner=(f'<div class="dfb-onsite-intro">{escape(intro,quote=True)}</div>' if intro else '')
+            for mark,body in parts:
+                inner+=(f'<div class="dfb-onsite-line">'
+                        f'<span class="dfb-onsite-mark">{mark}</span>'
+                        f'<span class="dfb-onsite-text">{escape(body,quote=True)}</span>'
+                        '</div>')
+        else:
+            inner=f'<div class="dfb-onsite-plain">{escape(str(item),quote=True)}</div>'
+        chunks.append(f'<div class="dfb-onsite-item">'
+                      f'<div class="dfb-onsite-index">현장 확인 {idx:02d}</div>{inner}</div>')
+    return '<div class="dfb-onsite-list">'+''.join(chunks)+'</div>'
+
+
 def _ai_report_html(raw: str, d) -> str:
     """Consistent accessible report design, even if the model omits formatting."""
     obj=_ai_report_payload(raw)
@@ -480,7 +523,7 @@ def _ai_report_html(raw: str, d) -> str:
                  + section('02','진단에 작용한 요인',bullets(obj['factors']))
                  + '<div class="dfb-ai-side-grid">'
                  +section('03','먼저 검토할 지원 방향',bullets(obj['support_directions']),'dfb-ai-side')
-                 +section('04','현장에서 확인할 사항',bullets(obj['onsite_checks']),'dfb-ai-side')
+                 +section('04','현장에서 확인할 사항',_onsite_check_html(obj['onsite_checks']),'dfb-ai-side')
                  +'</div>'
                  +(section('05','현장 결과에 따른 다음 판단',
                     '<div class="dfb-ai-decisions">'+''.join(
@@ -538,7 +581,16 @@ def _ai_report_pdf_text(raw: str, d) -> str:
     parts.extend(['','04 / 먼저 검토할 지원 방향'])
     parts.extend('- '+x for x in obj['support_directions'])
     parts.extend(['','05 / 현장 확인 사항'])
-    parts.extend('- '+x for x in obj['onsite_checks'])
+    for i, item in enumerate(obj['onsite_checks'], 1):
+        intro, check_parts=_onsite_check_segments(item)
+        parts.append(f'현장 확인 {i:02d}')
+        if intro:
+            parts.append(intro)
+        if check_parts:
+            parts.extend(f'  ({mark}) {body}' for mark,body in check_parts)
+        else:
+            parts.append('- '+str(item))
+        parts.append('')
     if obj['decision_paths']:
         parts.extend(['','06 / 현장 결과에 따른 다음 판단'])
         parts.extend(f'- 조건 {i}: {x}' for i,x in enumerate(obj['decision_paths'],1))
@@ -822,9 +874,23 @@ def show_report_page(unit: str):
       color:#384251!important;word-break:keep-all;overflow-wrap:break-word}
     .dfb-ai-list li::before{content:' ';position:absolute;top:.7em;left:0;width:6px;height:6px;
       background:#b96129;border-radius:50%}
-    .dfb-ai-side-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e8ebef}
+    .dfb-ai-side-grid{display:block;border-bottom:1px solid #e8ebef}
     .dfb-ai-side-grid>.dfb-ai-section{border-bottom:0}
-    .dfb-ai-side-grid>.dfb-ai-section+.dfb-ai-section{border-left:1px solid #e8ebef}
+    .dfb-ai-side-grid>.dfb-ai-section+.dfb-ai-section{border-top:1px solid #e8ebef}
+    /* Structured three-part onsite checks: keep (가)(나)(다) readable and aligned. */
+    .dfb-onsite-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .dfb-onsite-item{min-width:0;border:1px solid #e4e7eb;border-radius:9px;background:#fcfcfb;padding:12px 13px 10px}
+    .dfb-onsite-index{font-size:11px!important;line-height:1.5!important;color:#9b5728!important;
+       font-weight:850!important;letter-spacing:.02em;margin-bottom:7px}
+    .dfb-onsite-intro{font-size:13px!important;line-height:1.65!important;color:#4b5663!important;margin:0 0 8px}
+    .dfb-onsite-line{display:grid;grid-template-columns:23px minmax(0,1fr);align-items:start;
+       column-gap:8px;padding:7px 0;border-top:1px solid #f0f1f2}
+    .dfb-onsite-line:first-of-type{border-top:0}
+    .dfb-onsite-mark{display:inline-flex;align-items:center;justify-content:center;margin-top:2px;
+       width:22px;height:22px;border-radius:5px;background:#f4ece5;color:#a2511e!important;
+       font-size:12px!important;font-weight:850!important;line-height:1!important}
+    .dfb-onsite-text,.dfb-onsite-plain{display:block;color:#384251!important;
+       font-size:13px!important;line-height:1.7!important;word-break:keep-all;overflow-wrap:anywhere}
     .dfb-ai-decisions{display:grid;grid-template-columns:1fr;gap:9px}
     .dfb-ai-decision{display:flex;align-items:flex-start;gap:13px;border:1px solid #e7e8e9;
       background:#fbfbfa;border-radius:10px;padding:12px 15px}
@@ -838,12 +904,15 @@ def show_report_page(unit: str):
     .dfb-ai-legacy h4{font-size:15px!important;margin:13px 0 9px!important;color:#212a37!important}
     .dfb-ai-legacy-bullet{position:relative;padding:3px 0 5px 17px;font-size:14px!important;line-height:1.8!important;color:#384251!important}
     .dfb-ai-legacy-bullet::before{content:'•';position:absolute;left:0;color:#af602a}
+    @media(max-width:1050px){.dfb-onsite-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:720px){
       .dfb-ai-summary{padding:19px}.dfb-ai-section{padding:18px}
       .dfb-ai-summary-text{font-size:16px!important}
       .dfb-ai-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
       .dfb-ai-metric-value{font-size:18px!important}
       .dfb-ai-side-grid{grid-template-columns:1fr}
+      .dfb-onsite-list{grid-template-columns:1fr}
+      .dfb-onsite-item{padding:12px}
       .dfb-ai-side-grid>.dfb-ai-section+.dfb-ai-section{border-left:0;border-top:1px solid #e8ebef}
     }
 
