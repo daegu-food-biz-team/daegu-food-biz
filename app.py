@@ -133,6 +133,14 @@ def _fix_missing_map_regions(html: str) -> str:
 def html_from_sources(signature):
     html=(ROOT/'preview_quick_open.html').read_text(encoding='utf-8')
     html=_fix_missing_map_regions(_update_legend_in_streamlit_html(html))
+    # Founder-only: separate 'no data' grey from the 63–69% survival band.
+    # Update both the actual polygon fill and its legend swatch.
+    html=html.replace(
+        "if(role==='founder'){if(!f)return '#E4E8EC';",
+        "if(role==='founder'){if(!f)return '#A7B0BC';", 1)
+    html=html.replace(
+        'style="background:#E4E8EC"></i><strong>회색</strong> · 자료 없음',
+        'style="background:#A7B0BC"></i><strong>회색</strong> · 자료 없음', 1)
     officer,founder,mapping=read_files()
     geometry,mode=load_geometry()
     geo,stats=map_features(officer,founder,mapping,geometry,mode)
