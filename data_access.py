@@ -10,7 +10,7 @@ OFFICER = BASE / 'data' / 'officer_dongs.csv'
 FOUNDER = BASE / 'data' / 'founder_cafe.csv'
 MAP = BASE / 'data' / 'unit_hjd_map.csv'
 HJD_GEO = BASE / 'geo' / 'daegu_hjd_ver20261001.geojson'
-LEGAL_GEO = BASE / 'geo' / 'daegu_legal_dong.geojson'
+LEGAL_GEO = BASE / 'geo' / 'daegu_boundary_web.geojson'
 REQUIRED_OFFICER = {'diagnosis_scope','unit','gu','dong','is_stagnant','bottleneck','confidence','val_accuracy','rule_agree','entry_pct','surv_pct','reasons','n_active','growth_past3','open_rate','close_rate','pop3','model_version','t0'}
 REQUIRED_FOUNDER = {'unit','gu','dong','industry','surv2_adj','surv2_raw','cohort_n','small_sample','active_2025'}
 REQUIRED_MAP = {'unit','hjd_code','stores','share','hjd_name'}
@@ -99,11 +99,11 @@ def map_features(officer,founder,mapping,geometry,geo_mode):
     candidates={}
     for r in mapping.to_dict('records'):
         candidates.setdefault(str(r['hjd_code']), []).append(r)
-    display=[]; collisions=0; represented=set(); unresolved=[]
+    display=[]; collisions=0; represented=set(); unresolved=[]; outside_dataset=[]
     for feat in geometry['features']:
         p=feat.get('properties',{})
         if geo_mode=='legal':
-            unit=p.get('unit',''); unit_code=str(p.get('code') or p.get('EMD_CD') or '자료 미제공')
+            unit=p.get('unit',''); unit_code=str(p.get('dong_code') or p.get('dong_code') or p.get('code') or p.get('EMD_CD') or '자료 미제공')
             physical=str(unit)
             overlapped=0
         else:
@@ -115,14 +115,15 @@ def map_features(officer,founder,mapping,geometry,geo_mode):
             physical=str(p.get('adm_nm',''))
             overlapped=max(0,len(rows)-1)
             if overlapped:collisions+=1
-        if unit and unit not in o:unresolved.append(unit)
+        if unit and unit not in o:
+            (outside_dataset if geo_mode=='legal' else unresolved).append(unit)
         if unit in o:represented.add(unit)
         props={'UNIT':str(unit) if unit in o else '',
                'CODE':unit_code,'PHYSICAL_NAME':physical,
                'OVERLAP':overlapped,'MAP_MODE':geo_mode,
                'HJD_LABEL':physical if geo_mode!='legal' else ''}
         display.append({'type':'Feature','geometry':feat['geometry'],'properties':props})
-    return {'type':'FeatureCollection','features':display}, {'mapped_units':len(represented),'collisions':collisions,'unmatched_units':len(set(o)-represented),'invalid_unit_features':len(unresolved)}
+    return {'type':'FeatureCollection','features':display}, {'mapped_units':len(represented),'collisions':collisions,'unmatched_units':len(set(o)-represented),'invalid_unit_features':len(unresolved),'unanalysed_units':len(outside_dataset)}
 
 def bound_extent(geo):
     x1,y1,x2,y2=180,90,-180,-90

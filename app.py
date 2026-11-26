@@ -25,7 +25,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stApp"]{background:#f
 </style>''',unsafe_allow_html=True)
 
 def file_signature():
-    paths=[ROOT/'data/officer_dongs.csv',ROOT/'data/founder_cafe.csv',ROOT/'data/unit_hjd_map.csv',ROOT/'geo/daegu_hjd_ver20261001.geojson',ROOT/'llm/report_input_example.json',ROOT/'preview_quick_open.html']
+    paths=[ROOT/'data/officer_dongs.csv',ROOT/'data/founder_cafe.csv',ROOT/'data/unit_hjd_map.csv',ROOT/'geo/daegu_hjd_ver20261001.geojson',ROOT/'geo/daegu_boundary_web.geojson',ROOT/'llm/report_input_example.json',ROOT/'preview_quick_open.html']
     return tuple((str(p.relative_to(ROOT)),p.stat().st_size,p.stat().st_mtime_ns) for p in paths)
 
 @st.cache_data(show_spinner=False)
@@ -208,13 +208,30 @@ def show_report_page(unit: str):
     # page, animations and filters are not altered.
     st.markdown("""<style>
     [data-testid="stMainBlockContainer"],.block-container{
-      max-width:1020px!important;margin:0 auto!important;padding:32px 28px 48px!important;
+      max-width:980px!important;margin:0 auto!important;padding:22px 26px 26px!important;
     }
-    .dfb-report-title{font-weight:850;font-size:42px;letter-spacing:-.065em;margin:12px 0 8px;color:#111214!important}
-    .dfb-rule{border-top:1px solid #242424;margin-bottom:24px}
-    .dfb-kicker{font-size:11px;letter-spacing:.17em;color:#6b717a!important;font-weight:750}
+    .dfb-report-rule{border-top:2px solid #202125;margin:0 0 16px}
+    .dfb-report-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .dfb-report-kicker{font-size:11px;font-weight:800;letter-spacing:.13em;color:#5f6670!important}
+    .dfb-report-date{font-size:12px;color:#636a75!important;font-weight:600}
+    .dfb-report-title{font-size:clamp(30px,3vw,38px)!important;line-height:1.3!important;font-weight:850!important;
+      letter-spacing:-.055em!important;margin:11px 0 5px!important;color:#111214!important}
+    .dfb-report-deck{font-size:15px!important;font-weight:700!important;color:#464d57!important;margin:0 0 14px!important}
+    .dfb-report-tags{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:3px 0 13px}
+    .dfb-report-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;
+      font-size:13px!important;font-weight:750!important;border:1px solid #d9dfe5;background:#fff;color:#29313a!important}
+    .dfb-report-chip.survival{background:#fff4e9!important;color:#8e4310!important;border-color:#ebceb5}
+    .dfb-report-chip.entry{background:#ecf3ff!important;color:#214f9b!important;border-color:#c8d7f1}
+    .dfb-report-chip .chip-label{font-weight:600;color:#5a6270!important;font-size:12px!important}
+    .dfb-report-brief{border-top:1px solid #e1e4e8;border-bottom:1px solid #e1e4e8;
+      padding:10px 0;margin:0 0 13px;font-size:12px!important;line-height:1.65!important;color:#626b76!important}
+    .dfb-report-brief strong{color:#242830!important;font-weight:800!important}
+    .dfb-report-brief .sep{margin:0 10px;color:#c4c8cf!important}
+    @media(max-width:650px){.dfb-report-title{font-size:30px!important}.dfb-report-brief .sep{display:none}
+      .dfb-report-brief strong{display:inline-block;margin-right:6px}}
+
     .dfb-report-paper{
-      background:#fff;border:1px solid #d9dce0;padding:27px 30px 31px;
+      background:#fff;border:1px solid #d9dce0;padding:22px 24px 23px;
       color:#17191c!important;font-size:14px;line-height:1.8;
     }
     .dfb-report-paper h3{font-size:17px!important;font-weight:800!important;color:#111214!important;
@@ -223,16 +240,9 @@ def show_report_page(unit: str):
     .dfb-report-paper p{font-size:14px!important;line-height:1.8!important;
        color:#17191c!important;margin:0 0 9px!important;opacity:1!important}
     .dfb-report-subtitle{font-size:14px;color:#15171b!important;font-weight:800;
-        letter-spacing:-.02em;padding:9px 0 13px}
-    /* Report header only: loosen metadata spacing without changing the site UI. */
-    .dfb-report-meta{font-size:14px;color:#666e77!important;line-height:1.85!important;
-       margin:13px 0 0!important;letter-spacing:-.012em}
-    .dfb-report-diagnosis{font-size:16px;color:#17191c!important;line-height:1.85!important;
-       margin:13px 0 0!important;font-weight:650}
-    .dfb-report-context{font-size:13px;color:#727982!important;line-height:1.85!important;
-       margin:13px 0 0!important}
-    .dfb-report-section-title{font-size:23px!important;line-height:1.5!important;
-       font-weight:800!important;letter-spacing:-.045em;margin:29px 0 17px!important}
+        letter-spacing:-.02em;padding:3px 0 11px}
+    .dfb-report-section-title{font-size:16px!important;line-height:1.4!important;
+       font-weight:800!important;letter-spacing:-.025em;margin:14px 0 4px!important}
     .dfb-close-tab{box-sizing:border-box;display:flex;justify-content:center;align-items:center;
        width:100%;min-height:45px;white-space:nowrap;background:#17181b!important;
        color:#fff!important;-webkit-text-fill-color:#fff!important;
@@ -276,17 +286,21 @@ def show_report_page(unit: str):
       .dfb-report-paper{border:0!important;padding:0!important}
     }
     </style>""",unsafe_allow_html=True)
-    st.markdown('<div class="dfb-rule"></div><div class="dfb-kicker">DAEGU FOOD BIZ · DISTRICT REPORT</div><div class="dfb-report-title">동별 진단 리포트</div>',unsafe_allow_html=True)
-    # Group only the report header lines so their spacing is consistent and readable.
-    meta=escape(f"{unit} · 2025년 말 · 검증된 외식 점포 분석 자료")
-    bottleneck=escape(str(d['diagnosis']['bottleneck']))
-    confidence=escape(str(d['diagnosis']['confidence']))
+    # Compact information hierarchy: location > diagnosis > methodology > report body.
+    safe_unit=escape(unit)
+    safe_type=escape(str(d['diagnosis']['bottleneck']))
+    safe_conf=escape(str(d['diagnosis']['confidence']))
+    style='survival' if d['diagnosis']['bottleneck']=='생존 병목' else 'entry'
     st.markdown(
-        f'<div class="dfb-report-meta">{meta}</div>'
-        f'<div class="dfb-report-diagnosis"><strong>병목 유형:</strong> {bottleneck}'
-        f'　 |　 <strong>확신도:</strong> {confidence}</div>'
-        '<div class="dfb-report-context">대구 정체 동 65곳과의 상대 평가 · '
-        '과거 적중률은 지역별 성공 확률이 아닙니다.</div>',
+        '<div class="dfb-report-rule"></div>'
+        '<div class="dfb-report-top"><span class="dfb-report-kicker">DAEGU FOOD BIZ · 동별 진단 리포트</span>'
+        '<span class="dfb-report-date">분석 기준 · 2025년 말</span></div>'
+        f'<div class="dfb-report-title">{safe_unit}</div>'
+        '<div class="dfb-report-deck">외식 상권 진단 결과</div>'
+        f'<div class="dfb-report-tags"><span class="dfb-report-chip {style}">병목 유형 · {safe_type}</span>'
+        f'<span class="dfb-report-chip"><span class="chip-label">모델 확신도</span> {safe_conf}</span></div>'
+        '<div class="dfb-report-brief"><strong>비교 대상</strong> 대구 정체 동 65곳'
+        '<span class="sep">|</span><strong>해석 기준</strong> 상대적 병목 진단 · 개별 점포 성공 확률 아님</div>',
         unsafe_allow_html=True,
     )
     base=_grounded_draft(d)
@@ -297,7 +311,7 @@ def show_report_page(unit: str):
         mode='draft'
         report_modes[unit]='draft'
 
-    st.markdown('<div class="dfb-report-section-title">근거 자료 기반 보고서</div>',unsafe_allow_html=True)
+    st.markdown('<div class="dfb-report-section-title">분석 보고서</div>',unsafe_allow_html=True)
     if mode=='ai' and generated:
         st.markdown('<div class="dfb-report-subtitle">Gemini AI 작성 보고서</div>',unsafe_allow_html=True)
         # Native markdown for LLM-generated headings/lists, with explicit high
@@ -305,7 +319,7 @@ def show_report_page(unit: str):
         with st.container(border=True):
             st.markdown(generated)
     else:
-        st.markdown('<div class="dfb-report-subtitle">검증된 데이터 기반 기본 초안</div>',unsafe_allow_html=True)
+        st.markdown('<div class="dfb-report-subtitle">데이터 기반 기본 보고서</div>',unsafe_allow_html=True)
         st.markdown(_draft_html(base),unsafe_allow_html=True)
 
     # Must remain outside the AI-generated document so the LLM cannot omit it.
