@@ -171,6 +171,20 @@ def _add_status_missing_data_legend(html: str) -> str:
 @st.cache_data(show_spinner=False)
 def html_from_sources(signature):
     html=(ROOT/'preview_quick_open.html').read_text(encoding='utf-8')
+    # Refresh the data-information toggle wording without editing the HTML file.
+    # Preserve the underlying dataset, model, map and report functions.
+    original_source_text = (
+        ' 데이터: 조원 제공 인허가·인구 분석 결과 및 2025년 기준 모델 v2 결과<br>\n'
+        ' 모델의 병목 유형 과거 적중률 약 70%. 개별 상권 성공률·매출 예측·정책 우선순위가 아닙니다.'
+    )
+    revised_source_text = (
+        ' 활용 데이터: 인허가·인구 분석 자료 및 2025년 기준 병목 진단 모델(v2) 결과<br>\n'
+        ' 모델 해석: 과거 자료 기준 병목 유형 분류 적중률은 약 70%입니다. ' 
+        '이는 개별 점포의 성공 확률이나 매출을 예측하거나 정책 지원 우선순위를 결정하는 수치가 아닙니다.'
+    )
+    if html.count(original_source_text) != 1:
+        raise ValueError('데이터 정보 문구 위치가 예상과 다릅니다. HTML 템플릿을 확인해 주세요.')
+    html = html.replace(original_source_text, revised_source_text, 1)
     html=_fix_missing_map_regions(_update_legend_in_streamlit_html(html))
     html=_add_status_missing_data_legend(html)
     # Founder-only: separate 'no data' grey from the 63–69% survival band.
