@@ -179,12 +179,22 @@ def html_from_sources(signature):
     )
     revised_source_text = (
         ' 활용 데이터: 인허가·인구 분석 자료 및 2025년 기준 병목 진단 모델(v2) 결과<br>\n'
-        ' 모델 해석: 과거 자료 기준 병목 유형 분류 적중률은 약 70%입니다. ' 
-        '이는 개별 점포의 성공 확률이나 매출을 예측하거나 정책 지원 우선순위를 결정하는 수치가 아닙니다.'
+        ' 모델 정보: 과거 자료 기준 병목 유형 분류 적중률은 약 70%입니다. '
+        '이 수치는 개별 상권의 성공 확률이나 정책 지원 우선순위를 의미하지 않습니다.'
     )
     if html.count(original_source_text) != 1:
         raise ValueError('데이터 정보 문구 위치가 예상과 다릅니다. HTML 템플릿을 확인해 주세요.')
     html = html.replace(original_source_text, revised_source_text, 1)
+    # The model limitation remains in the expandable data information section,
+    # so remove the duplicate disclaimer displayed below the officer map.
+    bottom_disclaimer = (
+        '<div class="body-note">과거 병목 유형 적중률 70%. '
+        '단순 폐업률 규칙보다 우월하다는 근거는 없으며 '
+        '지원 우선순위는 별도 현황을 보고 판단합니다.</div>'
+    )
+    if html.count(bottom_disclaimer) != 1:
+        raise ValueError('지도 하단 중복 안내문 위치가 예상과 다릅니다. HTML 템플릿을 확인해 주세요.')
+    html = html.replace(bottom_disclaimer, '', 1)
     html=_fix_missing_map_regions(_update_legend_in_streamlit_html(html))
     html=_add_status_missing_data_legend(html)
     # Founder-only: separate 'no data' grey from the 63–69% survival band.
